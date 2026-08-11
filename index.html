@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>發送誤裝訂統計分析</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#006300; --bad:#d03b3b; --accent:#2a78d6;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --good:#0ca30c; --bad:#e66767; --accent:#3987e5;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--page); color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+  font-size: 14px; line-height: 1.5;
+}
+a { color: var(--accent); }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+header.top { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+header.top h1 { font-size: 20px; font-weight: 700; }
+header.top .sub { color: var(--muted); font-size: 12px; }
+.spacer { flex: 1; }
+.iconbtn { border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:8px; padding:5px 10px; cursor:pointer; font-size:13px; }
+.seg { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--surface); }
+.seg button { border:0; background:transparent; color:var(--ink-2); padding:6px 12px; cursor:pointer; font-size:13px; }
+.seg button.on { background: var(--accent); color: #fff; }
+nav.tabs { display:flex; gap:6px; margin: 8px 0 16px; overflow-x:auto; }
+nav.tabs button { border:1px solid var(--border); background:var(--surface); color:var(--ink-2); padding:8px 16px; border-radius:10px; cursor:pointer; font-size:14px; white-space:nowrap; }
+nav.tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:14px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; }
+.card .k { color:var(--muted); font-size:12px; }
+.card .v { font-size:26px; font-weight:700; margin:2px 0; }
+.card .d { font-size:12px; color:var(--ink-2); }
+.card .d .up { color:var(--bad); } .card .d .down { color:var(--good); }
+.panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px; }
+.panel h3 { font-size:14px; font-weight:700; margin-bottom:2px; }
+.panel .hint { color:var(--muted); font-size:12px; margin-bottom:8px; }
+.chart { position:relative; }
+.legend { display:flex; flex-wrap:wrap; gap:10px 14px; margin:6px 0 2px; font-size:12px; color:var(--ink-2); }
+.legend .it { display:inline-flex; align-items:center; gap:5px; }
+.legend .sw { width:10px; height:10px; border-radius:3px; display:inline-block; }
+.tooltip { position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.18); padding:8px 10px; font-size:12px; z-index:30; display:none; min-width:120px; }
+.tooltip .tt-t { font-weight:700; margin-bottom:4px; }
+.tooltip .row { display:flex; align-items:center; gap:6px; justify-content:space-between; }
+.tooltip .row b { font-variant-numeric: tabular-nums; }
+table.tbl { width:100%; border-collapse:collapse; font-size:13px; }
+table.tbl th { text-align:left; color:var(--muted); font-weight:600; padding:7px 8px; border-bottom:1px solid var(--grid); white-space:nowrap; }
+table.tbl td { padding:7px 8px; border-bottom:1px solid var(--grid); white-space:nowrap; font-variant-numeric:tabular-nums; }
+table.tbl tr:last-child td { border-bottom:0; }
+table.tbl td.num, table.tbl th.num { text-align:right; }
+.tblwrap { overflow-x:auto; }
+.hl { font-weight:700; color:var(--accent); }
+.pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--border); color:var(--ink-2); }
+.controls { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; align-items:end; }
+.controls label { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); }
+.controls input, .controls select { border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:8px; padding:6px 8px; font-size:13px; min-width:0; }
+.controls input[type=date] { width:140px; }
+.btn { border:0; background:var(--accent); color:#fff; border-radius:8px; padding:8px 18px; cursor:pointer; font-size:14px; font-weight:600; }
+.btn:disabled { opacity:.5; cursor:default; }
+.btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+.drop { border:2px dashed var(--axis); border-radius:14px; padding:40px 20px; text-align:center; color:var(--muted); cursor:pointer; transition:.15s; }
+.drop.over { border-color:var(--accent); color:var(--accent); background:rgba(42,120,214,.06); }
+.progress { height:10px; border-radius:6px; background:var(--grid); overflow:hidden; margin:10px 0; }
+.progress > div { height:100%; background:var(--accent); width:0%; transition:width .2s; }
+.msg-ok { color:var(--good); font-weight:600; }
+.msg-err { color:var(--bad); font-weight:600; }
+.pager { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:13px; color:var(--ink-2); }
+#gate { position:fixed; inset:0; background:var(--page); z-index:100; display:flex; align-items:center; justify-content:center; }
+#gate .box { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:34px 30px; width:320px; text-align:center; }
+#gate h2 { font-size:18px; margin-bottom:4px; }
+#gate p { color:var(--muted); font-size:13px; margin-bottom:16px; }
+#gate input { width:100%; text-align:center; font-size:22px; letter-spacing:8px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--page); color:var(--ink); margin-bottom:12px; }
+.loading { color:var(--muted); text-align:center; padding:30px 0; }
+svg text { font-family: inherit; }
+@media (max-width: 640px) { .card .v { font-size:21px; } header.top h1 { font-size:17px; } }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <div style="font-size:38px">📦</div>
+    <h2>發送誤裝訂統計分析</h2>
+    <p>請輸入通行碼</p>
+    <input id="passInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+    <button class="btn" style="width:100%" onclick="tryLogin()">進入</button>
+    <div id="gateMsg" class="msg-err" style="margin-top:10px; font-size:13px;"></div>
+  </div>
+</div>
+
+<div class="wrap" id="app" style="display:none">
+  <header class="top">
+    <div>
+      <h1>📦 發送誤裝訂統計分析</h1>
+      <div class="sub" id="lastUpload">—</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="seg" id="rangeSeg">
+      <button data-r="7">近7個工作日</button>
+      <button data-r="20" class="on">近20個工作日</button>
+      <button data-r="0">全部</button>
+    </div>
+    <button class="iconbtn" onclick="toggleTheme()" id="themeBtn">🌙</button>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-t="overview" class="on">總覽</button>
+    <button data-t="changhua">彰嘉區分析</button>
+    <button data-t="rank">排行榜</button>
+    <button data-t="detail">明細查詢</button>
+    <button data-t="upload">上傳資料</button>
+  </nav>
+
+  <div id="tab-overview"><div class="loading">載入中…</div></div>
+  <div id="tab-changhua" style="display:none"></div>
+  <div id="tab-rank" style="display:none"></div>
+  <div id="tab-detail" style="display:none"></div>
+  <div id="tab-upload" style="display:none"></div>
+</div>
+
+<div class="tooltip" id="tip"></div>
+
+<script>
+const API = "https://hmqnlovyzlvvnkqmfwtt.supabase.co/functions/v1/misload";
+const REGIONS = ["北一區","北二區","桃竹區","中區","彰嘉區","南區"];
+const RCOLOR = { "北一區":"--s1", "北二區":"--s2", "桃竹區":"--s3", "中區":"--s4", "彰嘉區":"--s5", "南區":"--s6" };
+
+let pass = localStorage.getItem("ml_pass") || "";
+let allStats = [];        // 原始 stats 列
+let uploads = [];
+let allDates = [];        // 排序後全部 stat_date
+let rangeN = 20;          // 0=全部
+let curTab = "overview";
+let detailState = { offset: 0, limit: 50, total: 0 };
+
+// ---------- 基礎 ----------
+async function api(action, payload = {}) {
+  const res = await fetch(API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passcode: pass, action, ...payload }),
+  });
+  const j = await res.json().catch(() => ({ error: "回應解析失敗" }));
+  if (!res.ok) throw new Error(j.error || ("HTTP " + res.status));
+  return j;
+}
+const fmtN = n => (n ?? 0).toLocaleString("zh-Hant");
+const fmtP = r => (r == null || !isFinite(r)) ? "—" : (r * 100).toFixed(2) + "%";
+const fmtPP = d => (d >= 0 ? "+" : "") + (d * 100).toFixed(2) + "pp";
+const md = d => d ? d.slice(5).replace("-", "/") : "";
+const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const cssVar = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ---------- 登入 ----------
+async function tryLogin() {
+  const v = document.getElementById("passInput").value.trim();
+  if (!v) return;
+  pass = v;
+  document.getElementById("gateMsg").textContent = "驗證中…";
+  try {
+    await loadDashboard();
+    localStorage.setItem("ml_pass", pass);
+    document.getElementById("gate").style.display = "none";
+    document.getElementById("app").style.display = "";
+    renderCurrent();
+  } catch (e) {
+    document.getElementById("gateMsg").textContent = e.message === "通行碼錯誤" ? "通行碼錯誤" : ("連線失敗：" + e.message);
+  }
+}
+document.getElementById("passInput").addEventListener("keydown", e => { if (e.key === "Enter") tryLogin(); });
+
+// ---------- 資料載入與整理 ----------
+async function loadDashboard() {
+  const j = await api("dashboard");
+  allStats = j.stats || [];
+  uploads = j.uploads || [];
+  allDates = [...new Set(allStats.map(s => s.stat_date))].sort();
+  const u = uploads[0];
+  document.getElementById("lastUpload").textContent = u
+    ? `最新資料：${allDates[allDates.length-1] || "—"}　（${new Date(u.uploaded_at).toLocaleString("zh-Hant",{hour12:false})} 上傳）`
+    : "尚無資料，請先上傳";
+}
+function rangeDates() {
+  if (!rangeN) return allDates;
+  return allDates.slice(-rangeN);
+}
+function pick(scope, region, station) {
+  const m = new Map();
+  for (const s of allStats) {
+    if (s.scope !== scope) continue;
+    if (region != null && s.region_name !== region) continue;
+    if (station != null && s.station_name !== station) continue;
+    m.set(s.stat_date, s);
+  }
+  return m;
+}
+function rateOf(s) { return s && s.sent_count > 0 ? s.err_count / s.sent_count : null; }
+function stationsOf(region) {
+  return [...new Set(allStats.filter(s => s.scope === "station" && s.region_name === region).map(s => s.station_name))];
+}
+
+// ---------- 共用圖表 (SVG) ----------
+const tip = document.getElementById("tip");
+function showTip(html, x, y) {
+  tip.innerHTML = html; tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  let left = x + 14, top = y + 14;
+  if (left + r.width > innerWidth - 8) left = x - r.width - 10;
+  if (top + r.height > innerHeight - 8) top = y - r.height - 10;
+  tip.style.left = left + scrollX + "px"; tip.style.top = top + scrollY + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+
+function niceTicks(max, n = 4) {
+  if (max <= 0) max = 1;
+  const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+  const ticks = []; for (let v = 0; v <= max + 1e-12; v += step) ticks.push(v);
+  return ticks;
+}
+
+// 折線圖：series = [{name, colorVar, data: Map(date→value|null)}]，dates 統一
+function lineChart(el, dates, series, opts = {}) {
+  const W = Math.max(el.clientWidth || 600, 320), H = opts.h || 250;
+  const M = { l: 46, r: 14, t: 10, b: 26 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  let max = 0;
+  series.forEach(s => dates.forEach(d => { const v = s.data.get(d); if (v != null && v > max) max = v; }));
+  const ticks = niceTicks(max * 1.12);
+  const ymax = ticks[ticks.length - 1] || 1;
+  const X = i => dates.length === 1 ? M.l + pw / 2 : M.l + pw * i / (dates.length - 1);
+  const Y = v => M.t + ph - ph * v / ymax;
+  const fmt = opts.fmt || fmtP;
+  let g = "";
+  ticks.forEach(t => {
+    g += `<line x1="${M.l}" y1="${Y(t)}" x2="${W - M.r}" y2="${Y(t)}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${M.l - 6}" y="${Y(t) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmt(t)}</text>`;
+  });
+  const skip = Math.ceil(dates.length / 9);
+  dates.forEach((d, i) => {
+    if (i % skip === 0 || i === dates.length - 1)
+      g += `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--muted)">${md(d)}</text>`;
+  });
+  g += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="var(--axis)" stroke-width="1"/>`;
+  series.forEach(s => {
+    let path = "", pen = false;
+    dates.forEach((d, i) => {
+      const v = s.data.get(d);
+      if (v == null) { pen = false; return; }
+      path += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1) + " ";
+      pen = true;
+    });
+    g += `<path d="${path}" fill="none" stroke="var(${s.colorVar})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const li = [...dates.keys()].reverse().find(i => s.data.get(dates[i]) != null);
+    if (li != null) g += `<circle cx="${X(li)}" cy="${Y(s.data.get(dates[li]))}" r="3" fill="var(${s.colorVar})"/>`;
+  });
+  g += `<line id="ch" x1="0" y1="${M.t}" x2="0" y2="${M.t + ph}" stroke="var(--axis)" stroke-width="1" style="display:none"/>`;
+  series.forEach((s, si) => {
+    g += `<circle id="hd${si}" r="4" fill="var(${s.colorVar})" stroke="var(--surface)" stroke-width="2" style="display:none"/>`;
+  });
+  let legend = "";
+  if (series.length > 1) {
+    legend = `<div class="legend">` + series.map(s =>
+      `<span class="it"><span class="sw" style="background:var(${s.colorVar})"></span>${esc(s.name)}</span>`).join("") + `</div>`;
+  }
+  el.innerHTML = legend + `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${g}<rect id="ov" x="${M.l}" y="${M.t}" width="${pw}" height="${ph}" fill="transparent"/></svg>`;
+  const svg = el.querySelector("svg"), ov = el.querySelector("#ov");
+  const ch = el.querySelector("#ch");
+  ov.addEventListener("mousemove", e => {
+    const box = svg.getBoundingClientRect();
+    const sx = (e.clientX - box.left) * W / box.width;
+    let bi = 0, bd = 1e9;
+    dates.forEach((d, i) => { const dx = Math.abs(X(i) - sx); if (dx < bd) { bd = dx; bi = i; } });
+    ch.setAttribute("x1", X(bi)); ch.setAttribute("x2", X(bi)); ch.style.display = "";
+    let rows = "";
+    series.forEach((s, si) => {
+      const v = s.data.get(dates[bi]);
+      const dot = el.querySelector("#hd" + si);
+      if (v == null) { dot.style.display = "none"; return; }
+      dot.setAttribute("cx", X(bi)); dot.setAttribute("cy", Y(v)); dot.style.display = "";
+      rows += `<div class="row"><span><span class="sw" style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(${s.colorVar})"></span> ${esc(s.name)}</span><b>${fmt(v)}</b></div>`;
+    });
+    showTip(`<div class="tt-t">${dates[bi]}</div>` + rows, e.clientX, e.clientY);
+  });
+  ov.addEventListener("mouseleave", () => {
+    hideTip(); ch.style.display = "none";
+    series.forEach((s, si) => el.querySelector("#hd" + si).style.display = "none");
+  });
+}
+
+// 直條圖：items = [{label, value, colorVar, tipHtml}]
+function barChartV(el, items, opts = {}) {
+  const W = Math.max(el.clientWidth || 600, 320), H = opts.h || 230;
+  const M = { l: 46, r: 10, t: 20, b: 26 };
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  const max = Math.max(...items.map(i => i.value), 0);
+  const ticks = niceTicks(max * 1.1);
+  const ymax = ticks[ticks.length - 1] || 1;
+  const fmt = opts.fmt || fmtP;
+  const bw = Math.min(46, pw / items.length - 8);
+  let g = "";
+  ticks.forEach(t => {
+    const y = M.t + ph - ph * t / ymax;
+    g += `<line x1="${M.l}" y1="${y}" x2="${W - M.r}" y2="${y}" stroke="var(--grid)"/>`;
+    g += `<text x="${M.l - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmt(t)}</text>`;
+  });
+  items.forEach((it, i) => {
+    const cx = M.l + pw * (i + 0.5) / items.length;
+    const h = ph * it.value / ymax;
+    const y = M.t + ph - h, x = cx - bw / 2;
+    const r = Math.min(4, h);
+    g += `<path class="bar" data-i="${i}" d="M${x} ${M.t + ph} L${x} ${y + r} Q${x} ${y} ${x + r} ${y} L${x + bw - r} ${y} Q${x + bw} ${y} ${x + bw} ${y + r} L${x + bw} ${M.t + ph} Z" fill="var(${it.colorVar || "--s1"})"/>`;
+    g += `<text x="${cx}" y="${y - 5}" text-anchor="middle" font-size="11" fill="var(--ink-2)">${fmt(it.value)}</text>`;
+    g += `<text x="${cx}" y="${H - 8}" text-anchor="middle" font-size="11" fill="var(--${it.hl ? "ink" : "muted"})" ${it.hl ? 'font-weight="700"' : ""}>${esc(it.label)}</text>`;
+  });
+  g += `<line x1="${M.l}" y1="${M.t + ph}" x2="${W - M.r}" y2="${M.t + ph}" stroke="var(--axis)"/>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${g}</svg>`;
+  el.querySelectorAll(".bar").forEach(b => {
+    b.addEventListener("mousemove", e => {
+      const it = items[+b.dataset.i];
+      showTip(it.tipHtml || `<div class="tt-t">${esc(it.label)}</div><div class="row"><span>數值</span><b>${fmt(it.value)}</b></div>`, e.clientX, e.clientY);
+    });
+    b.addEventListener("mouseleave", hideTip);
+  });
+}
+
+// 橫條圖（排行）：items = [{label, value, sub, hl}]
+function barChartH(el, items, opts = {}) {
+  const fmt = opts.fmt || fmtN;
+  const max = Math.max(...items.map(i => i.value), 1);
+  el.innerHTML = items.map((it, i) => `
+    <div class="hrow" data-i="${i}" style="display:flex;align-items:center;gap:8px;margin:5px 0;cursor:default">
+      <div style="width:110px;text-align:right;font-size:12px;color:var(--${it.hl ? "ink" : "ink-2"});${it.hl ? "font-weight:700" : ""};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.label)}</div>
+      <div style="flex:1;height:16px;position:relative">
+        <div style="position:absolute;inset:0 auto 0 0;width:${(it.value / max * 100).toFixed(1)}%;background:var(${it.hl ? "--s5" : "--s1"});border-radius:0 4px 4px 0;min-width:2px"></div>
+      </div>
+      <div style="width:74px;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums">${fmt(it.value)}${it.sub ? ` <span style="color:var(--muted)">${esc(it.sub)}</span>` : ""}</div>
+    </div>`).join("");
+  el.querySelectorAll(".hrow").forEach(r => {
+    r.addEventListener("mousemove", e => {
+      const it = items[+r.dataset.i];
+      if (it.tipHtml) showTip(it.tipHtml, e.clientX, e.clientY);
+    });
+    r.addEventListener("mouseleave", hideTip);
+  });
+}
+
+// ---------- KPI ----------
+function kpiCard(k, v, deltaHtml) {
+  return `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${deltaHtml || "&nbsp;"}</div></div>`;
+}
+function deltaRate(cur, prev, prevDate) {
+  if (cur == null || prev == null) return "";
+  const d = cur - prev, down = d < 0;
+  return `<span class="${down ? "down" : "up"}">${down ? "▼" : "▲"} ${fmtPP(d)}</span> vs ${md(prevDate)}`;
+}
+
+// ---------- 總覽 ----------
+function renderOverview() {
+  const el = document.getElementById("tab-overview");
+  const dates = rangeDates();
+  if (!dates.length) { el.innerHTML = `<div class="panel">尚無資料，請先到「上傳資料」頁上傳 xlsx。</div>`; return; }
+  const comp = pick("company", "全公司", "");
+  const L = dates[dates.length - 1], P = dates[dates.length - 2];
+  const cl = comp.get(L), cp = P ? comp.get(P) : null;
+  const html = `
+    <div class="cards">
+      ${kpiCard(`發送筆數（${md(L)}）`, fmtN(cl?.sent_count), P ? `前一工作日 ${fmtN(cp?.sent_count)}` : "")}
+      ${kpiCard(`誤裝訂筆數（${md(L)}）`, fmtN(cl?.err_count), P ? `前一工作日 ${fmtN(cp?.err_count)}` : "")}
+      ${kpiCard(`誤裝訂率（${md(L)}）`, fmtP(rateOf(cl)), deltaRate(rateOf(cl), rateOf(cp), P))}
+      ${kpiCard(`期間平均誤裝訂率`, fmtP(avgRate(comp, dates)), `${md(dates[0])}～${md(L)}`)}
+    </div>
+    <div class="panel"><h3>全公司誤裝訂率趨勢</h3><div class="hint">誤裝訂率＝誤裝訂筆數 ÷ 發送筆數（僅工作日）</div><div class="chart" id="ch-comp"></div></div>
+    <div class="panel"><h3>六區誤裝訂率趨勢</h3><div class="hint">滑鼠移到圖上可看各區當日數值</div><div class="chart" id="ch-regions"></div></div>
+    <div class="panel"><h3>各區最新一日（${L}）</h3><div class="tblwrap" id="tb-regions"></div></div>
+    <div class="panel"><h3>特殊發送站（${L}）</h3><div class="hint">跨境／統倉／ＵＱ／酷澎／壢森／北棧</div><div class="tblwrap" id="tb-special"></div></div>`;
+  el.innerHTML = html;
+  lineChart(document.getElementById("ch-comp"), dates,
+    [{ name: "全公司", colorVar: "--s1", data: mapRate(comp) }]);
+  lineChart(document.getElementById("ch-regions"), dates,
+    REGIONS.map(r => ({ name: r, colorVar: RCOLOR[r], data: mapRate(pick("region", r, "")) })), { h: 280 });
+  regionTable(document.getElementById("tb-regions"), L, P);
+  specialTable(document.getElementById("tb-special"), L);
+}
+function mapRate(m) {
+  const out = new Map();
+  m.forEach((s, d) => out.set(d, rateOf(s)));
+  return out;
+}
+function avgRate(m, dates) {
+  let sent = 0, err = 0;
+  dates.forEach(d => { const s = m.get(d); if (s) { sent += s.sent_count; err += s.err_count; } });
+  return sent ? err / sent : null;
+}
+function regionTable(el, L, P) {
+  const rows = REGIONS.map(r => {
+    const m = pick("region", r, "");
+    const s = m.get(L), p = P ? m.get(P) : null;
+    return { r, s, rate: rateOf(s), prev: rateOf(p) };
+  }).sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1));
+  el.innerHTML = `<table class="tbl"><thead><tr><th>區</th><th class="num">發送筆數</th><th class="num">誤裝訂</th><th class="num">誤裝訂率</th><th class="num">前日率</th><th class="num">變化</th></tr></thead><tbody>` +
+    rows.map(x => {
+      const d = (x.rate != null && x.prev != null) ? x.rate - x.prev : null;
+      return `<tr${x.r === "彰嘉區" ? ' style="background:rgba(232,123,164,.08)"' : ""}>
+        <td><span class="sw" style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(${RCOLOR[x.r]});margin-right:6px"></span>${x.r === "彰嘉區" ? `<b>${x.r}</b>` : x.r}</td>
+        <td class="num">${fmtN(x.s?.sent_count)}</td><td class="num">${fmtN(x.s?.err_count)}</td>
+        <td class="num"><b>${fmtP(x.rate)}</b></td><td class="num">${fmtP(x.prev)}</td>
+        <td class="num">${d == null ? "—" : `<span style="color:var(--${d < 0 ? "good" : "bad"})">${d < 0 ? "▼" : "▲"} ${fmtPP(d)}</span>`}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+}
+function specialTable(el, L) {
+  const sp = allStats.filter(s => s.scope === "special" && s.stat_date === L);
+  el.innerHTML = `<table class="tbl"><thead><tr><th>站</th><th class="num">發送筆數</th><th class="num">誤裝訂</th><th class="num">誤裝訂率</th></tr></thead><tbody>` +
+    sp.sort((a, b) => b.err_count - a.err_count).map(s =>
+      `<tr><td>${esc(s.station_name)}</td><td class="num">${fmtN(s.sent_count)}</td><td class="num">${fmtN(s.err_count)}</td><td class="num"><b>${fmtP(rateOf(s))}</b></td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+// ---------- 彰嘉區 ----------
+let chStation = "彰化";
+async function renderChanghua() {
+  const el = document.getElementById("tab-changhua");
+  const dates = rangeDates();
+  if (!dates.length) { el.innerHTML = `<div class="panel">尚無資料。</div>`; return; }
+  const L = dates[dates.length - 1], P = dates[dates.length - 2];
+  const reg = pick("region", "彰嘉區", "");
+  const rl = reg.get(L), rp = P ? reg.get(P) : null;
+  const rank = REGIONS.map(r => ({ r, rate: rateOf(pick("region", r, "").get(L)) }))
+    .filter(x => x.rate != null).sort((a, b) => a.rate - b.rate)
+    .findIndex(x => x.r === "彰嘉區") + 1;
+  const stations = stationsOf("彰嘉區");
+  const chm = pick("station", "彰嘉區", "彰化");
+  el.innerHTML = `
+    <div class="cards">
+      ${kpiCard(`彰嘉區誤裝訂率（${md(L)}）`, fmtP(rateOf(rl)), deltaRate(rateOf(rl), rateOf(rp), P))}
+      ${kpiCard(`六區排名（低→高）`, rank ? `第 ${rank} 名` : "—", "誤裝訂率愈低愈前面")}
+      ${kpiCard(`彰化站誤裝訂率（${md(L)}）`, fmtP(rateOf(chm.get(L))), deltaRate(rateOf(chm.get(L)), rateOf(chm.get(P)), P))}
+      ${kpiCard(`彰嘉區誤裝訂筆數（${md(L)}）`, fmtN(rl?.err_count), `發送 ${fmtN(rl?.sent_count)} 筆`)}
+    </div>
+    <div class="panel"><h3>彰嘉區各站誤裝訂率（${L}）</h3><div class="chart" id="ch-st"></div></div>
+    <div class="panel">
+      <h3>站別趨勢比較</h3>
+      <div class="controls"><label>選擇站所<select id="stSel">${stations.map(s => `<option${s === chStation ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></label></div>
+      <div class="chart" id="ch-cmp"></div>
+    </div>
+    <div class="panel"><h3>彰化「註區」攔到的誤裝來源（責任站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，註區站＝彰化的明細統計</div><div id="ch-in" class="loading">統計中…</div></div>
+    <div class="panel"><h3>彰化為「責任站」的誤裝流向（註區站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，責任站＝彰化的明細統計</div><div id="ch-out" class="loading">統計中…</div></div>`;
+  barChartV(document.getElementById("ch-st"),
+    stations.map(st => {
+      const s = pick("station", "彰嘉區", st).get(L);
+      return { label: st, value: rateOf(s) ?? 0, hl: st === "彰化", colorVar: st === "彰化" ? "--s5" : "--s1",
+        tipHtml: `<div class="tt-t">${esc(st)}</div><div class="row"><span>發送</span><b>${fmtN(s?.sent_count)}</b></div><div class="row"><span>誤裝訂</span><b>${fmtN(s?.err_count)}</b></div><div class="row"><span>率</span><b>${fmtP(rateOf(s))}</b></div>` };
+    }));
+  drawCmp(dates);
+  document.getElementById("stSel").addEventListener("change", e => { chStation = e.target.value; drawCmp(rangeDates()); });
+  try {
+    const [inc, out] = await Promise.all([
+      api("agg", { date_from: dates[0], date_to: L, group_by: "resp_station", note_station: "彰化" }),
+      api("agg", { date_from: dates[0], date_to: L, group_by: "note_station", resp_station: "彰化" }),
+    ]);
+    const draw = (id, rows, empty) => {
+      const box = document.getElementById(id);
+      if (!rows?.length) { box.className = ""; box.innerHTML = `<div class="hint">${empty}</div>`; return; }
+      box.className = ""; barChartH(box, rows.slice(0, 10).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆" })));
+    };
+    draw("ch-in", inc.rows, "此期間明細中沒有註區站＝彰化的紀錄");
+    draw("ch-out", out.rows, "此期間明細中沒有責任站＝彰化的紀錄");
+  } catch (e) {
+    document.getElementById("ch-in").innerHTML = `<span class="msg-err">${esc(e.message)}</span>`;
+  }
+}
+function drawCmp(dates) {
+  lineChart(document.getElementById("ch-cmp"), dates, [
+    { name: chStation, colorVar: "--s5", data: mapRate(pick("station", "彰嘉區", chStation)) },
+    { name: "彰嘉區", colorVar: "--s1", data: mapRate(pick("region", "彰嘉區", "")) },
+    { name: "全公司", colorVar: "--s4", data: mapRate(pick("company", "全公司", "")) },
+  ], { h: 260 });
+}
+
+// ---------- 排行榜 ----------
+async function renderRank() {
+  const el = document.getElementById("tab-rank");
+  const dates = rangeDates();
+  if (!dates.length) { el.innerHTML = `<div class="panel">尚無資料。</div>`; return; }
+  const L = dates[dates.length - 1];
+  el.innerHTML = `
+    <div class="panel"><h3>責任站誤裝訂筆數 Top 15</h3><div class="hint">期間 ${dates[0]} ～ ${L}（依明細責任站統計，粉紅＝彰嘉區站所）</div><div id="rk-resp" class="loading">統計中…</div></div>
+    <div class="panel"><h3>商品別分布</h3><div class="hint">同期間明細</div><div id="rk-prod" class="loading">統計中…</div></div>
+    <div class="panel"><h3>發送站誤裝訂率排行</h3><div class="hint">期間 ${dates[0]} ～ ${L} 加總（統計表，含特殊站；點欄位標題可排序）　<label style="cursor:pointer"><input type="checkbox" id="stMinChk" ${stMinOn ? "checked" : ""}> 排除發送量 &lt; 1,000 筆的站</label></div><div class="tblwrap" id="rk-station"></div></div>`;
+  document.getElementById("stMinChk").addEventListener("change", e => { stMinOn = e.target.checked; stationRateTable(document.getElementById("rk-station"), dates); });
+  stationRateTable(document.getElementById("rk-station"), dates);
+  try {
+    const chSt = new Set(stationsOf("彰嘉區"));
+    const [resp, prod] = await Promise.all([
+      api("agg", { date_from: dates[0], date_to: L, group_by: "resp_station" }),
+      api("agg", { date_from: dates[0], date_to: L, group_by: "product_type" }),
+    ]);
+    const rb = document.getElementById("rk-resp"); rb.className = "";
+    barChartH(rb, (resp.rows || []).slice(0, 15).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆", hl: chSt.has(r.k) })));
+    const pb = document.getElementById("rk-prod"); pb.className = "";
+    barChartH(pb, (prod.rows || []).slice(0, 10).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆" })));
+  } catch (e) {
+    document.getElementById("rk-resp").innerHTML = `<span class="msg-err">${esc(e.message)}</span>`;
+  }
+}
+let stSort = { key: "rate", dir: -1 };
+let stMinOn = true;
+function stationRateTable(el, dates) {
+  const agg = new Map();
+  for (const s of allStats) {
+    if ((s.scope !== "station" && s.scope !== "special") || !dates.includes(s.stat_date)) continue;
+    const k = s.station_name;
+    const o = agg.get(k) || { st: k, region: s.scope === "special" ? "特殊站" : s.region_name, sent: 0, err: 0 };
+    o.sent += s.sent_count; o.err += s.err_count;
+    agg.set(k, o);
+  }
+  let rows = [...agg.values()].map(o => ({ ...o, rate: o.sent ? o.err / o.sent : null }));
+  if (stMinOn) rows = rows.filter(r => r.sent >= 1000);
+  rows.sort((a, b) => ((b[stSort.key] ?? -1) - (a[stSort.key] ?? -1)) * -stSort.dir);
+  const th = (label, key) => `<th class="num sortable" data-k="${key}" style="cursor:pointer">${label}${stSort.key === key ? (stSort.dir < 0 ? " ▼" : " ▲") : ""}</th>`;
+  el.innerHTML = `<table class="tbl"><thead><tr><th>#</th><th>發送站</th><th>區</th>${th("發送筆數", "sent")}${th("誤裝訂", "err")}${th("誤裝訂率", "rate")}</tr></thead><tbody>` +
+    rows.map((x, i) => `<tr${x.region === "彰嘉區" ? ' style="background:rgba(232,123,164,.08)"' : ""}>
+      <td>${i + 1}</td><td>${x.region === "彰嘉區" ? `<b>${esc(x.st)}</b>` : esc(x.st)}</td><td><span class="pill">${esc(x.region)}</span></td>
+      <td class="num">${fmtN(x.sent)}</td><td class="num">${fmtN(x.err)}</td><td class="num"><b>${fmtP(x.rate)}</b></td></tr>`).join("") +
+    `</tbody></table>`;
+  el.querySelectorAll(".sortable").forEach(h => h.addEventListener("click", () => {
+    const k = h.dataset.k;
+    if (stSort.key === k) stSort.dir *= -1; else stSort = { key: k, dir: -1 };
+    stationRateTable(el, dates);
+  }));
+}
+
+// ---------- 明細查詢 ----------
+function renderDetail() {
+  const el = document.getElementById("tab-detail");
+  const L = allDates[allDates.length - 1] || "";
+  const F = allDates[Math.max(0, allDates.length - 5)] || "";
+  const allStations = [...new Set(allStats.filter(s => s.scope === "station" || s.scope === "special").map(s => s.station_name))].sort();
+  el.innerHTML = `
+    <div class="panel">
+      <div class="controls">
+        <label>發送日（起）<input type="date" id="dF" value="${F}"></label>
+        <label>發送日（迄）<input type="date" id="dT" value="${L}"></label>
+        <label>區<select id="dR"><option value="">全部</option>${REGIONS.map(r => `<option>${r}</option>`).join("")}</select></label>
+        <label>責任站<input id="dS" list="stList" style="width:100px" placeholder="全部"><datalist id="stList">${allStations.map(s => `<option>${esc(s)}</option>`).join("")}</datalist></label>
+        <label>商品別<select id="dP"><option value="">全部</option><option>一般</option><option>宅配</option><option>冷凍</option><option>冷藏</option><option>蔬果</option><option>來回件</option><option>醫藥ＧＤＰ</option><option>糕餅</option><option>當日配</option></select></label>
+        <label>關鍵字<input id="dQ" style="width:150px" placeholder="貨號／寄貨人／地址／人員"></label>
+        <button class="btn" id="dGo">查詢</button>
+      </div>
+      <div id="dInfo" class="hint"></div>
+      <div class="tblwrap" id="dTbl"><div class="loading">請按「查詢」</div></div>
+      <div class="pager" id="dPager"></div>
+    </div>`;
+  document.getElementById("dGo").addEventListener("click", () => { detailState.offset = 0; queryDetails(); });
+  document.getElementById("dQ").addEventListener("keydown", e => { if (e.key === "Enter") { detailState.offset = 0; queryDetails(); } });
+  queryDetails();
+}
+async function queryDetails() {
+  const tbl = document.getElementById("dTbl");
+  tbl.innerHTML = `<div class="loading">查詢中…</div>`;
+  const p = {
+    date_from: document.getElementById("dF").value || null,
+    date_to: document.getElementById("dT").value || null,
+    region_name: document.getElementById("dR").value || null,
+    resp_station: document.getElementById("dS").value.trim() || null,
+    product_type: document.getElementById("dP").value || null,
+    q: document.getElementById("dQ").value.trim() || null,
+    limit: detailState.limit, offset: detailState.offset,
+  };
+  try {
+    const j = await api("details", p);
+    detailState.total = j.total || 0;
+    document.getElementById("dInfo").textContent = `共 ${fmtN(detailState.total)} 筆`;
+    if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderPager(); return; }
+    tbl.innerHTML = `<table class="tbl"><thead><tr>
+      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆</th>
+      </tr></thead><tbody>` +
+      j.rows.map(r => `<tr>
+        <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(r.resp_station)}</b></td>
+        <td style="font-variant-numeric:tabular-nums">${esc(r.tracking_no)}</td>
+        <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(r.note_station)}</td>
+        <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
+        <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
+        <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
+        <td>${esc(r.reply) || "—"}</td></tr>`).join("") + `</tbody></table>`;
+    renderPager();
+  } catch (e) {
+    tbl.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
+  }
+}
+function renderPager() {
+  const pg = document.getElementById("dPager");
+  const { offset, limit, total } = detailState;
+  const page = Math.floor(offset / limit) + 1, pages = Math.max(1, Math.ceil(total / limit));
+  pg.innerHTML = `
+    <button class="iconbtn" ${page <= 1 ? "disabled" : ""} id="pgPrev">‹ 上一頁</button>
+    <span>第 ${page} / ${pages} 頁</span>
+    <button class="iconbtn" ${page >= pages ? "disabled" : ""} id="pgNext">下一頁 ›</button>`;
+  pg.querySelector("#pgPrev")?.addEventListener("click", () => { detailState.offset -= limit; queryDetails(); });
+  pg.querySelector("#pgNext")?.addEventListener("click", () => { detailState.offset += limit; queryDetails(); });
+}
+
+// ---------- 上傳 ----------
+let parsed = null;
+function renderUpload() {
+  const el = document.getElementById("tab-upload");
+  el.innerHTML = `
+    <div class="panel">
+      <h3>上傳每日 xlsx</h3>
+      <div class="hint">拖入或點選「YYYYMMDD發送誤裝訂統計表.xlsx」。統計表依日期覆蓋更新、明細依發送日整日覆蓋，同一天重傳不會重複。</div>
+      <div class="drop" id="drop">📄 拖曳檔案到這裡，或點擊選擇檔案<input type="file" id="file" accept=".xlsx" style="display:none"></div>
+      <div id="upPreview" style="margin-top:12px"></div>
+      <div class="progress" id="upProg" style="display:none"><div></div></div>
+      <div id="upMsg" style="margin-top:6px"></div>
+    </div>
+    <div class="panel"><h3>最近上傳紀錄</h3><div class="tblwrap">
+      <table class="tbl"><thead><tr><th>檔案日期</th><th class="num">明細筆數</th><th class="num">統計天數</th><th>上傳時間</th></tr></thead><tbody>
+      ${uploads.map(u => `<tr><td>${u.file_date}</td><td class="num">${fmtN(u.detail_count)}</td><td class="num">${u.stats_days}</td><td>${new Date(u.uploaded_at).toLocaleString("zh-Hant", { hour12: false })}</td></tr>`).join("") || `<tr><td colspan="4">尚無紀錄</td></tr>`}
+      </tbody></table></div></div>`;
+  const drop = document.getElementById("drop"), fi = document.getElementById("file");
+  drop.addEventListener("click", () => fi.click());
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+  fi.addEventListener("change", () => { if (fi.files[0]) handleFile(fi.files[0]); });
+}
+function serialToYmd(n) {
+  const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+  return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0") + "-" + String(d.getUTCDate()).padStart(2, "0");
+}
+function xYmd(v) {
+  if (v == null) return null;
+  if (typeof v === "number") {
+    if (v >= 19000000) { const s = String(v); return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`; }
+    if (v > 20000 && v < 80000) return serialToYmd(v);
+    return null;
+  }
+  const s = String(v).trim();
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  return null;
+}
+function xHms(v) {
+  if (v == null) return null;
+  let s = String(v).trim().split(".")[0];
+  if (/^\d{5,6}$/.test(s)) { s = s.padStart(6, "0"); return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`; }
+  return s || null;
+}
+function xTxt(v) {
+  if (v == null) return null;
+  const s = String(v).replace(/　/g, " ").trim();
+  return s || null;
+}
+async function handleFile(file) {
+  const pv = document.getElementById("upPreview");
+  pv.innerHTML = `<div class="loading">解析中…</div>`;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    if (!wb.Sheets["統計表"] || !wb.Sheets["誤裝訂明細"]) throw new Error("檔案缺少「統計表」或「誤裝訂明細」工作表，請確認是發送誤裝訂統計表。");
+    const st = XLSX.utils.sheet_to_json(wb.Sheets["統計表"], { header: 1, raw: true, defval: null });
+    const dt = XLSX.utils.sheet_to_json(wb.Sheets["誤裝訂明細"], { header: 1, raw: true, defval: null });
+    // ---- 統計表 ----
+    const hdr = st[2] || [];
+    const dateCols = [];
+    for (let c = 5; c < hdr.length; c++) {
+      const d = (typeof hdr[c] === "number" && hdr[c] > 20000 && hdr[c] < 80000) ? serialToYmd(hdr[c]) : null;
+      if (d) dateCols.push([c, d]);
+    }
+    if (!dateCols.length) throw new Error("統計表找不到日期欄位。");
+    const stats = [];
+    for (let r = 4; r < st.length; r++) {
+      const row = st[r] || [];
+      const b = row[1], cn = xTxt(row[2]), dn = xTxt(row[3]);
+      if (cn == null && dn == null) break;
+      let scope, code, region, station;
+      if (cn === "全公司") { scope = "company"; code = 0; region = "全公司"; station = ""; }
+      else if (dn == null) { scope = "region"; code = Number(b) || 0; region = cn; station = ""; }
+      else if (String(b) === "0" || b === 0) { scope = "special"; code = 0; region = "特殊站"; station = dn; }
+      else { scope = "station"; code = Number(b) || 0; region = cn; station = dn; }
+      for (const [c, d] of dateCols) {
+        const sent = typeof row[c] === "number" ? Math.round(row[c]) : 0;
+        const err = typeof row[c + 1] === "number" ? Math.round(row[c + 1]) : 0;
+        if (!sent && !err) continue;
+        stats.push({ stat_date: d, scope, region_code: code, region_name: region, station_name: station, sent_count: sent, err_count: err });
+      }
+    }
+    // ---- 明細 ----
+    const detailsBy = {};
+    let detTotal = 0;
+    for (let r = 4; r < dt.length; r++) {
+      const row = dt[r] || [];
+      const seq = row[3], sd = xYmd(row[8]);
+      if (typeof seq !== "number" || !sd) continue;
+      (detailsBy[sd] = detailsBy[sd] || []).push({
+        region_code: typeof row[0] === "number" ? row[0] : null,
+        region_name: xTxt(row[2]), resp_station: xTxt(row[4]), seq: Math.round(seq),
+        work_date: xYmd(row[5]), work_time: xHms(row[6]),
+        tracking_no: xTxt(row[7]), send_station: xTxt(row[9]),
+        sender: xTxt(row[10]), address: xTxt(row[11]),
+        pieces: typeof row[12] === "number" ? Math.round(row[12]) : null,
+        dest_station: xTxt(row[13]), note_station: xTxt(row[14]),
+        note_code: xTxt(row[16]), note_date: xYmd(row[17]), note_time: xHms(row[18]),
+        note_staff: xTxt(row[19]), reply: xTxt(row[20]), product_type: xTxt(row[21]),
+      });
+      detTotal++;
+    }
+    const m = file.name.match(/(\d{8})/);
+    const fileDate = m ? `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}` : (Object.keys(detailsBy).sort().pop() || dateCols[dateCols.length - 1][1]);
+    parsed = { stats, detailsBy, detTotal, fileDate, fileName: file.name };
+    const statDays = [...new Set(stats.map(s => s.stat_date))].sort();
+    pv.innerHTML = `
+      <table class="tbl">
+        <tr><th>檔案</th><td>${esc(file.name)}</td></tr>
+        <tr><th>統計表</th><td>${fmtN(stats.length)} 筆（${statDays.length} 個工作日：${statDays[0]} ～ ${statDays[statDays.length - 1]}）</td></tr>
+        <tr><th>明細</th><td>${fmtN(detTotal)} 筆（發送日：${Object.keys(detailsBy).sort().map(d => `${d}＝${fmtN(detailsBy[d].length)}筆`).join("、")}）</td></tr>
+      </table>
+      <div style="margin-top:10px"><button class="btn" onclick="doUpload()">✅ 確認上傳入庫</button></div>`;
+  } catch (e) {
+    parsed = null;
+    pv.innerHTML = `<div class="msg-err">解析失敗：${esc(e.message)}</div>`;
+  }
+}
+async function doUpload() {
+  if (!parsed) return;
+  const prog = document.getElementById("upProg"), bar = prog.querySelector("div"), msg = document.getElementById("upMsg");
+  prog.style.display = ""; msg.innerHTML = "";
+  const BATCH = 800;
+  const jobs = [];
+  for (let i = 0; i < parsed.stats.length; i += BATCH)
+    jobs.push({ action: "upload_stats", rows: parsed.stats.slice(i, i + BATCH) });
+  for (const [sd, rows] of Object.entries(parsed.detailsBy))
+    for (let i = 0; i < rows.length; i += BATCH)
+      jobs.push({ action: "upload_details", send_date: sd, first: i === 0, rows: rows.slice(i, i + BATCH) });
+  jobs.push({ action: "log_upload", file_date: parsed.fileDate, detail_count: parsed.detTotal, stats_days: [...new Set(parsed.stats.map(s => s.stat_date))].length });
+  try {
+    for (let i = 0; i < jobs.length; i++) {
+      await api(jobs[i].action, jobs[i]);
+      bar.style.width = Math.round((i + 1) / jobs.length * 100) + "%";
+    }
+    msg.innerHTML = `<span class="msg-ok">✅ 上傳完成！統計 ${fmtN(parsed.stats.length)} 筆、明細 ${fmtN(parsed.detTotal)} 筆已入庫。</span>`;
+    parsed = null;
+    document.getElementById("upPreview").innerHTML = "";
+    await loadDashboard();
+    setTimeout(() => { prog.style.display = "none"; bar.style.width = "0%"; renderUpload(); }, 1200);
+  } catch (e) {
+    msg.innerHTML = `<span class="msg-err">上傳失敗：${esc(e.message)}（可重新解析檔案再試，同日資料會自動覆蓋不會重複）</span>`;
+  }
+}
+
+// ---------- 導覽 ----------
+function renderCurrent() {
+  ({ overview: renderOverview, changhua: renderChanghua, rank: renderRank, detail: renderDetail, upload: renderUpload })[curTab]();
+}
+document.getElementById("tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  curTab = b.dataset.t;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  ["overview", "changhua", "rank", "detail", "upload"].forEach(t =>
+    document.getElementById("tab-" + t).style.display = t === curTab ? "" : "none");
+  renderCurrent();
+});
+document.getElementById("rangeSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  rangeN = +b.dataset.r;
+  document.querySelectorAll("#rangeSeg button").forEach(x => x.classList.toggle("on", x === b));
+  if (curTab !== "upload" && curTab !== "detail") renderCurrent();
+});
+let rsz;
+addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(() => { if (curTab === "overview" || curTab === "changhua") renderCurrent(); }, 250); });
+
+// ---------- 主題 ----------
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById("themeBtn").textContent = t === "dark" ? "☀️" : "🌙";
+  localStorage.setItem("ml_theme", t);
+}
+function toggleTheme() {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  renderCurrent();
+}
+applyTheme(localStorage.getItem("ml_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+
+// ---------- 啟動 ----------
+(async () => {
+  if (pass) {
+    try {
+      await loadDashboard();
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("app").style.display = "";
+      renderCurrent();
+      return;
+    } catch { localStorage.removeItem("ml_pass"); pass = ""; }
+  }
+  document.getElementById("passInput").focus();
+})();
+</script>
+</body>
+</html>
