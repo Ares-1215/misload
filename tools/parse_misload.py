@@ -95,6 +95,9 @@ def parse_html_file(path):
         if len(tds) < 19:
             continue
         c = [htmlmod.unescape(re.sub(r"<[^>]+>", "", x)).replace("\xa0", " ").strip() for x in tds[:19]]
+        # 匯出檔用 =TEXT(值,"0000...") 保留前導零 → 還原成補零後的純值；空值→空字串
+        c = [(_m.group(1).zfill(len(_m.group(2))) if _m.group(1) else "")
+             if (_m := re.fullmatch(r'=TEXT\((\d*),"(0+)"\)', x)) else x for x in c]
         # 0序號 1責任站 2作業日 3作業時間 4十碼貨號 5發送日期 6發送站 7寄貨人 8收貨地址
         # 9發送件數 10到著站 11註區站 12註區件數 13註區碼 14註區日 15註區時間 16註區人員 17責任站回覆 18商品別
         send_d = ymd(c[5])
