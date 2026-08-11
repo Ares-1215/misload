@@ -167,6 +167,7 @@ const fmtP = r => (r == null || !isFinite(r)) ? "—" : (r * 100).toFixed(2) + "
 const fmtPP = d => (d >= 0 ? "+" : "") + (d * 100).toFixed(2) + "pp";
 const md = d => d ? d.slice(5).replace("-", "/") : "";
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const stName = s => s === "彰轉" ? "彰化(彰轉)" : s; // 彰轉=彰化轉運中心，歸入彰化並註明
 const cssVar = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 // ---------- 登入 ----------
@@ -461,8 +462,8 @@ async function renderChanghua() {
       <div class="controls"><label>選擇站所<select id="stSel">${stations.map(s => `<option${s === chStation ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></label></div>
       <div class="chart" id="ch-cmp"></div>
     </div>
-    <div class="panel"><h3>彰化「註區」攔到的誤裝來源（責任站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，註區站＝彰化的明細統計</div><div id="ch-in" class="loading">統計中…</div></div>
-    <div class="panel"><h3>彰化為「責任站」的誤裝流向（註區站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，責任站＝彰化的明細統計</div><div id="ch-out" class="loading">統計中…</div></div>`;
+    <div class="panel"><h3>彰化(含彰轉)「註區」攔到的誤裝來源（責任站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，註區站＝彰化或彰轉的明細統計</div><div id="ch-in" class="loading">統計中…</div></div>
+    <div class="panel"><h3>彰化(含彰轉)為「責任站」的誤裝流向（註區站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，責任站＝彰化或彰轉的明細統計</div><div id="ch-out" class="loading">統計中…</div></div>`;
   barChartV(document.getElementById("ch-st"),
     stations.map(st => {
       const s = pick("station", "彰嘉區", st).get(L);
@@ -514,7 +515,7 @@ async function renderRank() {
       api("agg", { date_from: dates[0], date_to: L, group_by: "product_type" }),
     ]);
     const rb = document.getElementById("rk-resp"); rb.className = "";
-    barChartH(rb, (resp.rows || []).slice(0, 15).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆", hl: chSt.has(r.k) })));
+    barChartH(rb, (resp.rows || []).slice(0, 15).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆", hl: chSt.has(r.k) || r.k === "彰化(彰轉)" })));
     const pb = document.getElementById("rk-prod"); pb.className = "";
     barChartH(pb, (prod.rows || []).slice(0, 10).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆" })));
   } catch (e) {
@@ -609,9 +610,9 @@ async function queryDetails() {
       <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
       </tr></thead><tbody>` +
       j.rows.map(r => `<tr>
-        <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(r.resp_station)}</b></td>
+        <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
         <td style="font-variant-numeric:tabular-nums">${esc(r.tracking_no)}</td>
-        <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(r.note_station)}</td>
+        <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
         <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
         <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
         <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
