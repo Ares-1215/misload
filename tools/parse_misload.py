@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
-"""解析 OneDrive\誤裝誤訂 內尚未入庫的 xlsx → 產出 JSON 批次檔
+"""解析 OneDrive\誤裝誤訂 內尚未入庫的 xlsx/xls → 產出 JSON 批次檔
 用法： python parse_misload.py [來源資料夾] [輸出資料夾]
 狀態檔 .uploaded.json 記錄已入庫的 檔名+mtime，重跑只處理新檔/改過的檔。
 """
-import openpyxl, sys, json, glob, os, re, warnings, datetime
+import openpyxl, xlrd, sys, json, glob, os, re, warnings, datetime, html as htmlmod
 warnings.filterwarnings("ignore")
 sys.stdout.reconfigure(encoding="utf-8")
+
+# 發送站 → [區號, 區]（貨物追蹤系統 HTML 匯出檔沒有「區」欄，靠這個補）
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "station_region.json"), encoding="utf-8-sig") as f:
+    STATION_REGION = json.load(f)
 
 SRC_DIR = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\26516\OneDrive\誤裝誤訂"
 OUT_DIR = sys.argv[2] if len(sys.argv) > 2 else os.path.join(SRC_DIR, ".payloads")
@@ -35,9 +39,89 @@ def txt(v):
     s = str(v).strip().replace("\u3000", " ").strip()
     return s or None
 
+def load_sheets(path):
+    """xls/xlsx → {工作表名: 2D list}（日期→datetime、錯誤儲存格→None）"""
+    sheets = {}
+    if path.lower().endswith(".xls"):
+        book = xlrd.open_workbook(path)
+        for sh in book.sheets():
+            rows = []
+            for r in range(sh.nrows):
+                row = []
+                for c in range(sh.ncols):
+                    cell = sh.cell(r, c)
+                    if cell.ctype == xlrd.XL_CELL_DATE:
+                        try:
+                            row.append(xlrd.xldate.xldate_as_datetime(cell.value, book.datemode))
+                        except Exception:
+                            row.append(None)
+                    elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK, xlrd.XL_CELL_ERROR):
+                        row.append(None)
+                    else:
+                        row.append(cell.value)
+                rows.append(row)
+            sheets[sh.name] = rows
+    else:
+        wb = openpyxl.load_workbook(path, data_only=True)
+        for ws in wb.worksheets:
+            sheets[ws.title] = [list(r) for r in ws.iter_rows(values_only=True)]
+    return sheets
+
+class Sheet:
+    """1-indexed cell 存取，相容原本 openpyxl 寫法"""
+    def __init__(self, rows):
+        self.rows = rows
+        self.max_row = len(rows)
+        self.max_column = max((len(r) for r in rows), default=0)
+    def cell(self, r, c):
+        v = None
+        if 1 <= r <= len(self.rows) and 1 <= c <= len(self.rows[r - 1]):
+            v = self.rows[r - 1][c - 1]
+        class _C: value = v
+        return _C
+
+def is_html_file(path):
+    with open(path, "rb") as f:
+        head = f.read(64).lstrip(b"\xef\xbb\xbf \t\r\n")
+    return head.startswith(b"<")
+
+def parse_html_file(path):
+    """貨物追蹤系統匯出的 HTML 偽 xls：只有明細表（19欄、無區欄），無統計表"""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    details = {}
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", text, re.S):
+        tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
+        if len(tds) < 19:
+            continue
+        c = [htmlmod.unescape(re.sub(r"<[^>]+>", "", x)).replace("\xa0", " ").strip() for x in tds[:19]]
+        # 0序號 1責任站 2作業日 3作業時間 4十碼貨號 5發送日期 6發送站 7寄貨人 8收貨地址
+        # 9發送件數 10到著站 11註區站 12註區件數 13註區碼 14註區日 15註區時間 16註區人員 17責任站回覆 18商品別
+        send_d = ymd(c[5])
+        if not send_d or not re.fullmatch(r"\d+", c[0]):
+            continue
+        send_station = txt(c[6])
+        rc, rn = STATION_REGION.get(send_station, (None, None))
+        details.setdefault(send_d, []).append({
+            "region_code": rc, "region_name": rn,
+            "resp_station": txt(c[1]), "seq": int(c[0]),
+            "work_date": ymd(c[2]), "work_time": hms(c[3]),
+            "tracking_no": txt(c[4]), "send_station": send_station,
+            "sender": txt(c[7]), "address": txt(c[8]),
+            "pieces": int(float(c[9])) if re.fullmatch(r"\d+(\.\d+)?", c[9]) else None,
+            "dest_station": txt(c[10]), "note_station": txt(c[11]),
+            "note_code": txt(c[13]), "note_date": ymd(c[14]), "note_time": hms(c[15]),
+            "note_staff": txt(c[16]), "reply": txt(c[17]), "product_type": txt(c[18]),
+        })
+    return [], details
+
 def parse_file(path):
-    wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb["統計表"]
+    if is_html_file(path):
+        return parse_html_file(path)
+    sheets = load_sheets(path)
+    if "統計表" not in sheets or "誤裝訂明細" not in sheets:
+        raise ValueError("缺少「統計表」或「誤裝訂明細」工作表")
+    ws = Sheet(sheets["統計表"])
     date_cols = []
     for c in range(6, ws.max_column + 1):
         v = ws.cell(3, c).value
@@ -64,7 +148,7 @@ def parse_file(path):
             stats.append({"stat_date": d, "scope": scope, "region_code": code,
                           "region_name": region, "station_name": station,
                           "sent_count": sent, "err_count": err})
-    ws2 = wb["誤裝訂明細"]
+    ws2 = Sheet(sheets["誤裝訂明細"])
     details = {}
     for r in range(5, ws2.max_row + 1):
         seq = ws2.cell(r, 4).value
@@ -101,7 +185,7 @@ if os.path.exists(STATE):
 
 manifest = []
 processed = []
-for path in sorted(glob.glob(os.path.join(SRC_DIR, "2026*發送誤裝訂統計表.xlsx"))):
+for path in sorted(glob.glob(os.path.join(SRC_DIR, "2026*發送誤裝訂統計表.xls")) + glob.glob(os.path.join(SRC_DIR, "2026*發送誤裝訂統計表.xlsx"))):
     name = os.path.basename(path)
     mtime = int(os.path.getmtime(path))
     if state.get(name) == mtime:
@@ -109,7 +193,7 @@ for path in sorted(glob.glob(os.path.join(SRC_DIR, "2026*發送誤裝訂統計�
     m = re.search(r"(\d{8})", name)
     file_date = f"{m.group(1)[0:4]}-{m.group(1)[4:6]}-{m.group(1)[6:8]}"
     stats, details = parse_file(path)
-    tag = m.group(1)
+    tag = m.group(1) + ("_xlsx" if path.lower().endswith(".xlsx") else "_xls")
     for i in range(0, len(stats), BATCH):
         fn = os.path.join(OUT_DIR, f"{tag}_stats_{i//BATCH}.json")
         with open(fn, "w", encoding="utf-8") as f:
