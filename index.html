@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>發送誤裝訂統計分析</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <style>
 :root {
   color-scheme: light;
@@ -140,6 +140,8 @@ svg text { font-family: inherit; }
 const API = "https://hmqnlovyzlvvnkqmfwtt.supabase.co/functions/v1/misload";
 const REGIONS = ["北一區","北二區","桃竹區","中區","彰嘉區","南區"];
 const RCOLOR = { "北一區":"--s1", "北二區":"--s2", "桃竹區":"--s3", "中區":"--s4", "彰嘉區":"--s5", "南區":"--s6" };
+// 發送站→[區號,區]（HTML 偽 xls 匯出檔沒有「區」欄，用這個補；與 tools/station_region.json 同步）
+const STATION_REGION = {"屏工":[6,"南區"],"斗六":[5,"彰嘉區"],"南崁":[3,"桃竹區"],"竹東":[3,"桃竹區"],"楊梅":[3,"桃竹區"],"Ｌａ":[4,"中區"],"麻豆":[6,"南區"],"屏東":[6,"南區"],"蘆洲":[1,"北一區"],"八德":[3,"桃竹區"],"台南":[6,"南區"],"福德":[2,"北二區"],"頭份":[4,"中區"],"土城":[2,"北二區"],"前鎮":[6,"南區"],"北屯":[4,"中區"],"竹科":[3,"桃竹區"],"基隆":[2,"北二區"],"草屯":[4,"中區"],"豐原":[4,"中區"],"酷澎":[3,"桃竹區"],"苗栗":[4,"中區"],"東勢":[2,"北二區"],"花蓮":[2,"北二區"],"沙鹿":[4,"中區"],"八堵":[2,"北二區"],"新營":[6,"南區"],"民雄":[5,"彰嘉區"],"新豐":[3,"桃竹區"],"竹北":[3,"桃竹區"],"台北":[1,"北一區"],"汐止":[2,"北二區"],"羅東":[2,"北二區"],"台中":[4,"中區"],"三重":[1,"北一區"],"古亭":[2,"北二區"],"樹林":[2,"北二區"],"新店":[2,"北二區"],"高雄":[6,"南區"],"竹南":[4,"中區"],"鳳山":[6,"南區"],"台東":[6,"南區"],"中和":[2,"北二區"],"龜山":[3,"桃竹區"],"大里":[4,"中區"],"永和":[2,"北二區"],"大社":[6,"南區"],"西屯":[4,"中區"],"澎海":[5,"彰嘉區"],"桃園":[3,"桃竹區"],"宜蘭":[2,"北二區"],"潮州":[6,"南區"],"新竹":[3,"桃竹區"],"八里":[1,"北一區"],"南投":[4,"中區"],"安平":[6,"南區"],"淡水":[1,"北一區"],"和美":[5,"彰嘉區"],"埔里":[4,"中區"],"鶯歌":[3,"桃竹區"],"濱江":[1,"北一區"],"玉里":[2,"北二區"],"北投":[1,"北一區"],"明誠":[6,"南區"],"梧棲":[4,"中區"],"福二":[2,"北二區"],"新莊":[1,"北一區"],"埤頭":[5,"彰嘉區"],"統倉":[0,"統倉"],"三民":[6,"南區"],"中壢":[3,"桃竹區"],"跨境":[0,"跨境"],"彰化":[5,"彰嘉區"],"信義":[2,"北二區"],"中工":[4,"中區"],"五權":[4,"中區"],"烏日":[4,"中區"],"北港":[5,"彰嘉區"],"東石":[5,"彰嘉區"],"員林":[5,"彰嘉區"],"六家":[3,"桃竹區"],"大甲":[4,"中區"],"平鎮":[3,"桃竹區"],"岡山":[6,"南區"],"大園":[3,"桃竹區"],"嘉義":[5,"彰嘉區"],"安南":[6,"南區"],"田中":[5,"彰嘉區"],"永康":[6,"南區"],"虎尾":[5,"彰嘉區"],"壢森":[0,"壢森"],"北棧":[0,"北棧"]};
 
 let pass = localStorage.getItem("ml_pass") || "";
 let allStats = [];        // 原始 stats 列
@@ -566,9 +568,22 @@ function renderDetail() {
       <div id="dInfo" class="hint"></div>
       <div class="tblwrap" id="dTbl"><div class="loading">請按「查詢」</div></div>
       <div class="pager" id="dPager"></div>
+    </div>
+    <div class="panel">
+      <h3>匯出 Excel</h3>
+      <div class="hint">以最新資料日（${L || "—"}）為基準，匯出明細＋統計兩個工作表，全部文字自動置中。</div>
+      <div class="controls">
+        <button class="btn ghost" onclick="exportExcel('day')">匯出本日</button>
+        <button class="btn ghost" onclick="exportExcel('week')">匯出本週</button>
+        <button class="btn ghost" onclick="exportExcel('month')">匯出本月</button>
+        <button class="btn ghost" onclick="exportExcel('year')">匯出全年</button>
+        <button class="btn" onclick="exportExcel('filter')">匯出目前篩選結果</button>
+      </div>
+      <div id="expMsg" class="hint"></div>
     </div>`;
   document.getElementById("dGo").addEventListener("click", () => { detailState.offset = 0; queryDetails(); });
   document.getElementById("dQ").addEventListener("keydown", e => { if (e.key === "Enter") { detailState.offset = 0; queryDetails(); } });
+  document.getElementById("dTbl").addEventListener("click", onReplyClick);
   queryDetails();
 }
 async function queryDetails() {
@@ -588,8 +603,10 @@ async function queryDetails() {
     detailState.total = j.total || 0;
     document.getElementById("dInfo").textContent = `共 ${fmtN(detailState.total)} 筆`;
     if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderPager(); return; }
+    detailRowsById = {};
+    j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.innerHTML = `<table class="tbl"><thead><tr>
-      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆</th>
+      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
       </tr></thead><tbody>` +
       j.rows.map(r => `<tr>
         <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(r.resp_station)}</b></td>
@@ -598,12 +615,146 @@ async function queryDetails() {
         <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
         <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
         <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
-        <td>${esc(r.reply) || "—"}</td></tr>`).join("") + `</tbody></table>`;
+        ${replyCellHtml(r)}</tr>`).join("") + `</tbody></table>`;
     renderPager();
   } catch (e) {
     tbl.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
   }
 }
+let detailRowsById = {};
+function replyCellHtml(r) {
+  const has = r.reply && r.reply.trim();
+  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:120px" title="點擊填寫回報原因">${has ? esc(r.reply) : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
+}
+function onReplyClick(e) {
+  const cell = e.target.closest("td.rcell");
+  if (!cell || cell.dataset.editing) return;
+  const id = cell.dataset.id, r = detailRowsById[id];
+  if (!r) return;
+  cell.dataset.editing = "1";
+  cell.style.cursor = "default";
+  cell.innerHTML = `<div style="display:flex;gap:6px;align-items:center">
+    <input class="rinput" style="border:1px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:6px;padding:4px 8px;font-size:13px;width:180px" maxlength="500" placeholder="回報原因…">
+    <button class="iconbtn rsave">儲存</button><button class="iconbtn rcancel">✕</button></div>`;
+  const input = cell.querySelector(".rinput");
+  input.value = r.reply || "";
+  input.focus();
+  const done = () => { delete cell.dataset.editing; cell.style.cursor = "pointer"; cell.outerHTML = replyCellHtml(r); };
+  cell.querySelector(".rcancel").addEventListener("click", ev => { ev.stopPropagation(); done(); });
+  const save = async () => {
+    const v = input.value.trim();
+    input.disabled = true;
+    try {
+      const j = await api("update_reply", { id: Number(id), reply: v || null });
+      r.reply = j.reply;
+      done();
+    } catch (err) {
+      alert("儲存失敗：" + err.message);
+      input.disabled = false;
+    }
+  };
+  cell.querySelector(".rsave").addEventListener("click", ev => { ev.stopPropagation(); save(); });
+  input.addEventListener("keydown", ev => { if (ev.key === "Enter") save(); if (ev.key === "Escape") done(); });
+}
+
+// ---------- 匯出 Excel ----------
+async function fetchAllDetails(params, onProgress) {
+  const rows = [];
+  let offset = 0, total = Infinity;
+  while (offset < total && offset < 50000) {
+    const j = await api("details", { ...params, limit: 500, offset });
+    total = j.total || 0;
+    rows.push(...(j.rows || []));
+    offset += 500;
+    onProgress?.(rows.length, total);
+    if (!j.rows?.length) break;
+  }
+  return { rows, total };
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+function exportRange(kind) {
+  const L = allDates[allDates.length - 1];
+  if (!L) return null;
+  const d = new Date(L + "T00:00:00");
+  const y = d.getFullYear(), mo = d.getMonth();
+  if (kind === "day") return { from: L, to: L, label: L.replaceAll("-", "") };
+  if (kind === "week") {
+    const dow = (d.getDay() + 6) % 7; // 週一=0
+    const mon = new Date(d); mon.setDate(d.getDate() - dow);
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    const f = `${mon.getFullYear()}-${pad2(mon.getMonth() + 1)}-${pad2(mon.getDate())}`;
+    const t = `${sun.getFullYear()}-${pad2(sun.getMonth() + 1)}-${pad2(sun.getDate())}`;
+    return { from: f, to: t, label: `${f.replaceAll("-", "")}週` };
+  }
+  if (kind === "month") {
+    const last = new Date(y, mo + 1, 0).getDate();
+    return { from: `${y}-${pad2(mo + 1)}-01`, to: `${y}-${pad2(mo + 1)}-${pad2(last)}`, label: `${y}${pad2(mo + 1)}月` };
+  }
+  return { from: `${y}-01-01`, to: `${y}-12-31`, label: `${y}年` };
+}
+const CENTER = { alignment: { horizontal: "center", vertical: "center", wrapText: false } };
+const HEADER_STYLE = { alignment: { horizontal: "center", vertical: "center" }, font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "2480E6" } } };
+function sCell(v, extra) { return { v: v == null ? "" : v, t: typeof v === "number" ? "n" : "s", s: extra || CENTER }; }
+async function exportExcel(kind) {
+  const msg = document.getElementById("expMsg");
+  let from, to, label, params;
+  if (kind === "filter") {
+    from = document.getElementById("dF").value || null;
+    to = document.getElementById("dT").value || null;
+    label = "篩選結果";
+    params = {
+      date_from: from, date_to: to,
+      region_name: document.getElementById("dR").value || null,
+      resp_station: document.getElementById("dS").value.trim() || null,
+      product_type: document.getElementById("dP").value || null,
+      q: document.getElementById("dQ").value.trim() || null,
+    };
+  } else {
+    const r = exportRange(kind);
+    if (!r) { msg.textContent = "尚無資料可匯出"; return; }
+    ({ from, to, label } = r);
+    params = { date_from: from, date_to: to };
+  }
+  msg.textContent = "撈取資料中…";
+  try {
+    const { rows, total } = await fetchAllDetails(params, (n, t) => msg.textContent = `撈取資料中… ${fmtN(n)} / ${fmtN(t)}`);
+    if (!rows.length) { msg.textContent = "此範圍查無明細，未產生檔案。"; return; }
+    const heads = ["發送日期", "區", "責任站", "作業日", "作業時間", "十碼貨號", "發送站", "寄貨人", "收貨地址", "發送件數", "到著站", "註區站", "註區碼", "註區日", "註區時間", "註區人員", "責任站回覆", "商品別"];
+    const aoa = [heads.map(h => sCell(h, HEADER_STYLE))];
+    rows.forEach(r => aoa.push([
+      r.send_date, r.region_name, r.resp_station, r.work_date, r.work_time, r.tracking_no,
+      r.send_station, r.sender, r.address, r.pieces, r.dest_station, r.note_station,
+      r.note_code, r.note_date, r.note_time, r.note_staff, r.reply, r.product_type,
+    ].map(v => sCell(v))));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 7, 11, 9, 10, 18, 9].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "誤裝訂明細");
+    // 統計工作表（該範圍有統計資料才加）
+    const sRows = allStats.filter(s => s.stat_date >= (from || "0000") && s.stat_date <= (to || "9999"));
+    if (sRows.length) {
+      const order = { company: 0, region: 1, special: 2, station: 3 };
+      const sAoa = [["日期", "類別", "區", "發送站", "發送筆數", "誤裝訂筆數", "誤裝訂率"].map(h => sCell(h, HEADER_STYLE))];
+      sRows.sort((a, b) => a.stat_date.localeCompare(b.stat_date) || order[a.scope] - order[b.scope] || (a.region_code ?? 0) - (b.region_code ?? 0))
+        .forEach(s => {
+          const rate = s.sent_count ? s.err_count / s.sent_count : null;
+          const row = [s.stat_date, { company: "全公司", region: "區", special: "特殊站", station: "發送站" }[s.scope], s.region_name, s.station_name, s.sent_count, s.err_count].map(v => sCell(v));
+          const rc = sCell(rate ?? "");
+          if (rate != null) rc.z = "0.000%";
+          row.push(rc);
+          sAoa.push(row);
+        });
+      const ws2 = XLSX.utils.aoa_to_sheet(sAoa);
+      ws2["!cols"] = [12, 8, 8, 8, 11, 11, 10].map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws2, "統計");
+    }
+    XLSX.writeFile(wb, `誤裝訂_${label}.xlsx`);
+    msg.innerHTML = `<span class="msg-ok">✅ 已匯出 ${fmtN(rows.length)} 筆明細${total > 50000 ? "（超過 50,000 筆上限，已截斷）" : ""} → 誤裝訂_${label}.xlsx</span>`;
+  } catch (e) {
+    msg.innerHTML = `<span class="msg-err">匯出失敗：${esc(e.message)}</span>`;
+  }
+}
+
 function renderPager() {
   const pg = document.getElementById("dPager");
   const { offset, limit, total } = detailState;
@@ -623,8 +774,8 @@ function renderUpload() {
   el.innerHTML = `
     <div class="panel">
       <h3>上傳每日 xlsx</h3>
-      <div class="hint">拖入或點選「YYYYMMDD發送誤裝訂統計表.xlsx」。統計表依日期覆蓋更新、明細依發送日整日覆蓋，同一天重傳不會重複。</div>
-      <div class="drop" id="drop">📄 拖曳檔案到這裡，或點擊選擇檔案<input type="file" id="file" accept=".xlsx" style="display:none"></div>
+      <div class="hint">拖入或點選「YYYYMMDD發送誤裝訂統計表.xlsx / .xls」。xlsx 含統計表＋明細；.xls（貨物追蹤系統匯出）只有明細、無發送筆數。同一天重傳自動覆蓋不會重複。</div>
+      <div class="drop" id="drop">📄 拖曳檔案到這裡，或點擊選擇檔案<input type="file" id="file" accept=".xlsx,.xls" style="display:none"></div>
       <div id="upPreview" style="margin-top:12px"></div>
       <div class="progress" id="upProg" style="display:none"><div></div></div>
       <div id="upMsg" style="margin-top:6px"></div>
@@ -666,11 +817,65 @@ function xTxt(v) {
   const s = String(v).replace(/　/g, " ").trim();
   return s || null;
 }
+// 貨物追蹤系統匯出的 HTML 偽 xls：19 欄明細、無統計表、無區欄
+function parseHtmlDetail(text) {
+  const unText = s => {
+    const m = s.match(/^=TEXT\((\d*),"(0+)"\)$/);
+    return m ? (m[1] ? m[1].padStart(m[2].length, "0") : "") : s;
+  };
+  const detailsBy = {};
+  let detTotal = 0;
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+  let tr;
+  while ((tr = trRe.exec(text))) {
+    const tds = [...tr[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m =>
+      unText(m[1].replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/ /g, " ").trim()));
+    if (tds.length < 19) continue;
+    // 0序號 1責任站 2作業日 3作業時間 4十碼貨號 5發送日期 6發送站 7寄貨人 8收貨地址 9發送件數
+    // 10到著站 11註區站 12註區件數 13註區碼 14註區日 15註區時間 16註區人員 17責任站回覆 18商品別
+    const sd = xYmd(tds[5]);
+    if (!sd || !/^\d+$/.test(tds[0])) continue;
+    const st = xTxt(tds[6]);
+    const [rc, rn] = STATION_REGION[st] || [null, null];
+    (detailsBy[sd] = detailsBy[sd] || []).push({
+      region_code: rc, region_name: rn,
+      resp_station: xTxt(tds[1]), seq: parseInt(tds[0], 10),
+      work_date: xYmd(tds[2]), work_time: xHms(tds[3]),
+      tracking_no: xTxt(tds[4]), send_station: st,
+      sender: xTxt(tds[7]), address: xTxt(tds[8]),
+      pieces: /^\d+$/.test(tds[9]) ? parseInt(tds[9], 10) : null,
+      dest_station: xTxt(tds[10]), note_station: xTxt(tds[11]),
+      note_code: xTxt(tds[13]), note_date: xYmd(tds[14]), note_time: xHms(tds[15]),
+      note_staff: xTxt(tds[16]), reply: xTxt(tds[17]), product_type: xTxt(tds[18]),
+    });
+    detTotal++;
+  }
+  return { detailsBy, detTotal };
+}
 async function handleFile(file) {
   const pv = document.getElementById("upPreview");
   pv.innerHTML = `<div class="loading">解析中…</div>`;
   try {
     const buf = await file.arrayBuffer();
+    const head = new Uint8Array(buf.slice(0, 8));
+    let firstCh = 0;
+    for (const b of head) { if (b !== 0xEF && b !== 0xBB && b !== 0xBF && b !== 0x20 && b !== 0x09 && b !== 0x0D && b !== 0x0A) { firstCh = b; break; } }
+    if (firstCh === 0x3C) { // '<' → HTML 偽 xls
+      const text = new TextDecoder("utf-8").decode(buf);
+      const { detailsBy, detTotal } = parseHtmlDetail(text);
+      if (!detTotal) throw new Error("檔案裡找不到明細表格，請確認是貨物追蹤系統匯出的誤裝明細。");
+      const m = file.name.match(/(\d{8})/);
+      const fileDate = m ? `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}` : Object.keys(detailsBy).sort().pop();
+      parsed = { stats: [], detailsBy, detTotal, fileDate, fileName: file.name };
+      pv.innerHTML = `
+        <table class="tbl">
+          <tr><th>檔案</th><td>${esc(file.name)}<span class="pill" style="margin-left:8px">HTML 明細匯出檔</span></td></tr>
+          <tr><th>統計表</th><td>此格式無統計表（不影響既有誤裝率資料）</td></tr>
+          <tr><th>明細</th><td>${fmtN(detTotal)} 筆（發送日：${Object.keys(detailsBy).sort().map(d => `${d}＝${fmtN(detailsBy[d].length)}筆`).join("、")}）</td></tr>
+        </table>
+        <div style="margin-top:10px"><button class="btn" onclick="doUpload()">✅ 確認上傳入庫</button></div>`;
+      return;
+    }
     const wb = XLSX.read(buf, { type: "array" });
     if (!wb.Sheets["統計表"] || !wb.Sheets["誤裝訂明細"]) throw new Error("檔案缺少「統計表」或「誤裝訂明細」工作表，請確認是發送誤裝訂統計表。");
     const st = XLSX.utils.sheet_to_json(wb.Sheets["統計表"], { header: 1, raw: true, defval: null });
