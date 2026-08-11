@@ -39,8 +39,9 @@ header.top .sub { color: var(--muted); font-size: 12px; }
 .seg { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--surface); }
 .seg button { border:0; background:transparent; color:var(--ink-2); padding:6px 12px; cursor:pointer; font-size:13px; }
 .seg button.on { background: var(--accent); color: #fff; }
-nav.tabs { display:flex; gap:6px; margin: 8px 0 16px; overflow-x:auto; }
-nav.tabs button { border:1px solid var(--border); background:var(--surface); color:var(--ink-2); padding:8px 16px; border-radius:10px; cursor:pointer; font-size:14px; white-space:nowrap; }
+nav.tabs { display:flex; gap:6px; margin: 8px 0 16px; overflow-x:auto; position:sticky; top:0; z-index:40; background:var(--page); padding:8px 0; scrollbar-width:none; }
+nav.tabs::-webkit-scrollbar { display:none; }
+nav.tabs button { border:1px solid var(--border); background:var(--surface); color:var(--ink-2); padding:8px 16px; border-radius:10px; cursor:pointer; font-size:14px; white-space:nowrap; flex-shrink:0; }
 nav.tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
 .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:14px; }
 .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; }
@@ -64,7 +65,10 @@ table.tbl th { text-align:left; color:var(--muted); font-weight:600; padding:7px
 table.tbl td { padding:7px 8px; border-bottom:1px solid var(--grid); white-space:nowrap; font-variant-numeric:tabular-nums; }
 table.tbl tr:last-child td { border-bottom:0; }
 table.tbl td.num, table.tbl th.num { text-align:right; }
-.tblwrap { overflow-x:auto; }
+tr.replied td { background: rgba(12,163,12,.12); }
+tr.replied td:first-child { box-shadow: inset 3px 0 0 var(--good); }
+tr.replied td.rcell { color: var(--good); font-weight:600; }
+.tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 .hl { font-weight:700; color:var(--accent); }
 .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--border); color:var(--ink-2); }
 .controls { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; align-items:end; }
@@ -88,7 +92,32 @@ table.tbl td.num, table.tbl th.num { text-align:right; }
 #gate input { width:100%; text-align:center; font-size:22px; letter-spacing:8px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--page); color:var(--ink); margin-bottom:12px; }
 .loading { color:var(--muted); text-align:center; padding:30px 0; }
 svg text { font-family: inherit; }
-@media (max-width: 640px) { .card .v { font-size:21px; } header.top h1 { font-size:17px; } }
+@media (max-width: 640px) {
+  .wrap { padding: 10px 12px; }
+  header.top { gap:8px; }
+  header.top h1 { font-size:17px; }
+  header.top .sub { font-size:11px; }
+  header.top .seg { order:5; width:100%; display:flex; }
+  header.top .seg button { flex:1; padding:8px 4px; font-size:12px; }
+  .cards { grid-template-columns: 1fr 1fr; gap:8px; }
+  .card { padding:11px 12px; border-radius:10px; }
+  .card .v { font-size:20px; }
+  .card .k { font-size:11px; }
+  .card .d { font-size:11px; }
+  .panel { padding:12px; border-radius:10px; }
+  nav.tabs button { padding:9px 13px; font-size:13px; }
+  .controls { gap:8px; }
+  .controls label { flex:1 1 44%; min-width:130px; }
+  .controls input, .controls select { width:100%; }
+  .controls input[type=date] { width:100%; }
+  .controls .btn { flex:1 1 100%; padding:11px; }
+  .legend { gap:8px 10px; font-size:11px; }
+  table.tbl { font-size:12px; }
+  table.tbl th, table.tbl td { padding:6px; }
+  .drop { padding:28px 14px; }
+  .pager { justify-content:center; }
+  .pager .iconbtn { padding:9px 14px; }
+}
 </style>
 </head>
 <body>
@@ -349,7 +378,7 @@ function barChartH(el, items, opts = {}) {
   const max = Math.max(...items.map(i => i.value), 1);
   el.innerHTML = items.map((it, i) => `
     <div class="hrow" data-i="${i}" style="display:flex;align-items:center;gap:8px;margin:5px 0;cursor:default">
-      <div style="width:110px;text-align:right;font-size:12px;color:var(--${it.hl ? "ink" : "ink-2"});${it.hl ? "font-weight:700" : ""};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.label)}</div>
+      <div style="width:clamp(78px,22vw,110px);text-align:right;font-size:12px;color:var(--${it.hl ? "ink" : "ink-2"});${it.hl ? "font-weight:700" : ""};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.label)}</div>
       <div style="flex:1;height:16px;position:relative">
         <div style="position:absolute;inset:0 auto 0 0;width:${(it.value / max * 100).toFixed(1)}%;background:var(${it.hl ? "--s5" : "--s1"});border-radius:0 4px 4px 0;min-width:2px"></div>
       </div>
@@ -609,7 +638,7 @@ async function queryDetails() {
     tbl.innerHTML = `<table class="tbl"><thead><tr>
       <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
       </tr></thead><tbody>` +
-      j.rows.map(r => `<tr>
+      j.rows.map(r => `<tr${r.reply && r.reply.trim() ? ' class="replied"' : ""}>
         <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
         <td style="font-variant-numeric:tabular-nums">${esc(r.tracking_no)}</td>
         <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
@@ -625,7 +654,7 @@ async function queryDetails() {
 let detailRowsById = {};
 function replyCellHtml(r) {
   const has = r.reply && r.reply.trim();
-  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:120px" title="點擊填寫回報原因">${has ? esc(r.reply) : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
+  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:120px" title="點擊填寫回報原因">${has ? `✅ ${esc(r.reply)}` : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
 }
 function onReplyClick(e) {
   const cell = e.target.closest("td.rcell");
@@ -640,7 +669,11 @@ function onReplyClick(e) {
   const input = cell.querySelector(".rinput");
   input.value = r.reply || "";
   input.focus();
-  const done = () => { delete cell.dataset.editing; cell.style.cursor = "pointer"; cell.outerHTML = replyCellHtml(r); };
+  const done = () => {
+    delete cell.dataset.editing; cell.style.cursor = "pointer";
+    cell.closest("tr").classList.toggle("replied", !!(r.reply && r.reply.trim()));
+    cell.outerHTML = replyCellHtml(r);
+  };
   cell.querySelector(".rcancel").addEventListener("click", ev => { ev.stopPropagation(); done(); });
   const save = async () => {
     const v = input.value.trim();
