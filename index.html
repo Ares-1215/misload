@@ -151,6 +151,7 @@ svg text { font-family: inherit; }
   <nav class="tabs" id="tabs">
     <button data-t="overview" class="on">總覽</button>
     <button data-t="changhua">彰嘉區分析</button>
+    <button data-t="chquery">彰化查件</button>
     <button data-t="rank">排行榜</button>
     <button data-t="detail">明細查詢</button>
     <button data-t="upload">上傳資料</button>
@@ -158,6 +159,7 @@ svg text { font-family: inherit; }
 
   <div id="tab-overview"><div class="loading">載入中…</div></div>
   <div id="tab-changhua" style="display:none"></div>
+  <div id="tab-chquery" style="display:none"></div>
   <div id="tab-rank" style="display:none"></div>
   <div id="tab-detail" style="display:none"></div>
   <div id="tab-upload" style="display:none"></div>
@@ -599,6 +601,87 @@ function stationRateTable(el, dates) {
   }));
 }
 
+// ---------- 彰化查件 ----------
+const CAG_URL = "https://cagweb.hct.com.tw:8080/apex.aspx?apex=CAGWEB.A_PIKAM010";
+let chqState = { offset: 0, limit: 50, total: 0 };
+function renderChQuery() {
+  const el = document.getElementById("tab-chquery");
+  const union = [...new Set([...allDates, ...detailDates.map(x => x.d)])].sort();
+  const L = union[union.length - 1] || "";
+  const F = union[Math.max(0, union.length - 5)] || "";
+  el.innerHTML = `
+    <div class="panel">
+      <h3>彰化誤裝貨件查詢（責任站＝彰化／彰轉／彰化低溫）</h3>
+      <div class="hint">👆 點任一筆「十碼貨號」＝自動複製＋開啟公司貨物追蹤系統（登入一次後，每筆直接貼上查詢）。填寫回覆請點最後一欄。</div>
+      <div class="controls">
+        <label>發送日（起）<input type="date" id="cqF" value="${F}"></label>
+        <label>發送日（迄）<input type="date" id="cqT" value="${L}"></label>
+        <label>註區站<input id="cqN" style="width:100px" placeholder="全部"></label>
+        <button class="btn" id="cqGo">查詢</button>
+        <button class="btn ghost" onclick="window.open(CAG_URL,'hct')">🔗 開啟貨物追蹤系統</button>
+      </div>
+      <div id="cqInfo" class="hint"></div>
+      <div class="tblwrap" id="cqTbl"><div class="loading">查詢中…</div></div>
+      <div class="pager" id="cqPager"></div>
+    </div>`;
+  document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
+  document.getElementById("cqTbl").addEventListener("click", e => {
+    const t = e.target.closest(".trackLink");
+    if (t) {
+      const no = t.dataset.no;
+      navigator.clipboard?.writeText(no).catch(() => {});
+      window.open(CAG_URL, "hct");
+      t.textContent = "✅ " + no + "（已複製）";
+      setTimeout(() => { t.textContent = no; }, 2500);
+      return;
+    }
+    onReplyClick(e);
+  });
+  queryChq();
+}
+async function queryChq() {
+  const tbl = document.getElementById("cqTbl");
+  tbl.innerHTML = `<div class="loading">查詢中…</div>`;
+  try {
+    const j = await api("details", {
+      date_from: document.getElementById("cqF").value || null,
+      date_to: document.getElementById("cqT").value || null,
+      resp_station: "彰化",
+      note_station: document.getElementById("cqN").value.trim() || null,
+      limit: chqState.limit, offset: chqState.offset,
+    });
+    chqState.total = j.total || 0;
+    document.getElementById("cqInfo").textContent = `共 ${fmtN(chqState.total)} 筆（彰化＋彰轉＋彰化低溫）`;
+    if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
+    j.rows.forEach(r => detailRowsById[r.id] = r);
+    tbl.innerHTML = `<table class="tbl"><thead><tr>
+      <th>發送日</th><th>責任站</th><th>十碼貨號（點擊複製＋查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
+      </tr></thead><tbody>` +
+      j.rows.map(r => `<tr${r.reply && r.reply.trim() ? ' class="replied"' : ""}>
+        <td>${md(r.send_date)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
+        <td><a class="trackLink" data-no="${esc(r.tracking_no)}" style="cursor:pointer;font-variant-numeric:tabular-nums;text-decoration:underline dotted">${esc(r.tracking_no)}</a></td>
+        <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
+        <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
+        <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
+        ${replyCellHtml(r)}</tr>`).join("") + `</tbody></table>`;
+    renderChqPager();
+  } catch (e) {
+    tbl.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
+  }
+}
+function renderChqPager() {
+  const pg = document.getElementById("cqPager");
+  const { offset, limit, total } = chqState;
+  const page = Math.floor(offset / limit) + 1, pages = Math.max(1, Math.ceil(total / limit));
+  pg.innerHTML = `
+    <button class="iconbtn" ${page <= 1 ? "disabled" : ""} id="cqPrev">‹ 上一頁</button>
+    <span>第 ${page} / ${pages} 頁</span>
+    <button class="iconbtn" ${page >= pages ? "disabled" : ""} id="cqNext">下一頁 ›</button>`;
+  pg.querySelector("#cqPrev")?.addEventListener("click", () => { chqState.offset -= limit; queryChq(); });
+  pg.querySelector("#cqNext")?.addEventListener("click", () => { chqState.offset += limit; queryChq(); });
+}
+
 // ---------- 明細查詢 ----------
 let respStations = []; // 明細中實際出現過的責任站（含彰化(彰轉)等歸戶標示），依筆數排序
 async function loadRespStations() {
@@ -1036,13 +1119,13 @@ async function doUpload() {
 
 // ---------- 導覽 ----------
 function renderCurrent() {
-  ({ overview: renderOverview, changhua: renderChanghua, rank: renderRank, detail: renderDetail, upload: renderUpload })[curTab]();
+  ({ overview: renderOverview, changhua: renderChanghua, chquery: renderChQuery, rank: renderRank, detail: renderDetail, upload: renderUpload })[curTab]();
 }
 document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   curTab = b.dataset.t;
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
-  ["overview", "changhua", "rank", "detail", "upload"].forEach(t =>
+  ["overview", "changhua", "chquery", "rank", "detail", "upload"].forEach(t =>
     document.getElementById("tab-" + t).style.display = t === curTab ? "" : "none");
   renderCurrent();
 });
