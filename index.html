@@ -176,6 +176,8 @@ let pass = localStorage.getItem("ml_pass") || "";
 let allStats = [];        // 原始 stats 列
 let uploads = [];
 let allDates = [];        // 排序後全部 stat_date
+let detailDates = [];     // [{d, cnt}] 明細實際涵蓋日（.xls 只有明細沒統計表，日期可能比統計新）
+let lastLoadTs = 0;
 let rangeN = 20;          // 0=全部
 let curTab = "overview";
 let detailState = { offset: 0, limit: 50, total: 0 };
@@ -223,10 +225,20 @@ async function loadDashboard() {
   allStats = j.stats || [];
   uploads = j.uploads || [];
   allDates = [...new Set(allStats.map(s => s.stat_date))].sort();
+  detailDates = (j.detail_dates || []).map(r => ({ d: r.k, cnt: Number(r.cnt) })).sort((a, b) => a.d.localeCompare(b.d));
+  lastLoadTs = Date.now();
   const u = uploads[0];
+  const sL = allDates[allDates.length - 1] || "—";
+  const dL = detailDates.length ? detailDates[detailDates.length - 1].d : "—";
+  const range = (dL !== "—" && dL > sL) ? `統計至 ${sL}・明細至 ${dL}` : `最新資料：${sL}`;
   document.getElementById("lastUpload").textContent = u
-    ? `最新資料：${allDates[allDates.length-1] || "—"}　（${new Date(u.uploaded_at).toLocaleString("zh-Hant",{hour12:false})} 上傳）`
+    ? `${range}　（${new Date(u.uploaded_at).toLocaleString("zh-Hant",{hour12:false})} 上傳）`
     : "尚無資料，請先上傳";
+}
+function latestDataDate() {
+  const a = allDates[allDates.length - 1] || "";
+  const b = detailDates.length ? detailDates[detailDates.length - 1].d : "";
+  return (a > b ? a : b) || "";
 }
 function rangeDates() {
   if (!rangeN) return allDates;
@@ -411,7 +423,14 @@ function renderOverview() {
   const comp = pick("company", "全公司", "");
   const L = dates[dates.length - 1], P = dates[dates.length - 2];
   const cl = comp.get(L), cp = P ? comp.get(P) : null;
-  const html = `
+  const dL = latestDataDate();
+  const newerDetails = detailDates.filter(x => x.d > L);
+  const banner = newerDetails.length ? `
+    <div class="panel" style="border-left:4px solid var(--s4)">
+      <b>📬 ${newerDetails.map(x => `${md(x.d)} 明細 ${fmtN(x.cnt)} 筆`).join("、")} 已入庫</b>
+      <div class="hint" style="margin:4px 0 0">該檔為 .xls 明細匯出（無發送筆數），趨勢與誤裝率圖表待上傳當日 xlsx 統計檔後更新；「排行榜」「彰嘉區分析」「明細查詢」已包含這些資料。</div>
+    </div>` : "";
+  const html = banner + `
     <div class="cards">
       ${kpiCard(`發送筆數（${md(L)}）`, fmtN(cl?.sent_count), P ? `前一工作日 ${fmtN(cp?.sent_count)}` : "")}
       ${kpiCard(`誤裝訂筆數（${md(L)}）`, fmtN(cl?.err_count), P ? `前一工作日 ${fmtN(cp?.err_count)}` : "")}
@@ -471,6 +490,7 @@ async function renderChanghua() {
   const dates = rangeDates();
   if (!dates.length) { el.innerHTML = `<div class="panel">尚無資料。</div>`; return; }
   const L = dates[dates.length - 1], P = dates[dates.length - 2];
+  const aggTo = latestDataDate();
   const reg = pick("region", "彰嘉區", "");
   const rl = reg.get(L), rp = P ? reg.get(P) : null;
   const rank = REGIONS.map(r => ({ r, rate: rateOf(pick("region", r, "").get(L)) }))
@@ -491,8 +511,8 @@ async function renderChanghua() {
       <div class="controls"><label>選擇站所<select id="stSel">${stations.map(s => `<option${s === chStation ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></label></div>
       <div class="chart" id="ch-cmp"></div>
     </div>
-    <div class="panel"><h3>彰化(含彰轉/低溫)「註區」攔到的誤裝來源（責任站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，註區站＝彰化／彰轉／彰化低溫的明細統計</div><div id="ch-in" class="loading">統計中…</div></div>
-    <div class="panel"><h3>彰化(含彰轉/低溫)為「責任站」的誤裝流向（註區站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${L}，責任站＝彰化／彰轉／彰化低溫的明細統計</div><div id="ch-out" class="loading">統計中…</div></div>`;
+    <div class="panel"><h3>彰化(含彰轉/低溫)「註區」攔到的誤裝來源（責任站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${aggTo}，註區站＝彰化／彰轉／彰化低溫的明細統計</div><div id="ch-in" class="loading">統計中…</div></div>
+    <div class="panel"><h3>彰化(含彰轉/低溫)為「責任站」的誤裝流向（註區站 Top 10）</h3><div class="hint">期間 ${dates[0]} ～ ${aggTo}，責任站＝彰化／彰轉／彰化低溫的明細統計</div><div id="ch-out" class="loading">統計中…</div></div>`;
   barChartV(document.getElementById("ch-st"),
     stations.map(st => {
       const s = pick("station", "彰嘉區", st).get(L);
@@ -503,8 +523,8 @@ async function renderChanghua() {
   document.getElementById("stSel").addEventListener("change", e => { chStation = e.target.value; drawCmp(rangeDates()); });
   try {
     const [inc, out] = await Promise.all([
-      api("agg", { date_from: dates[0], date_to: L, group_by: "resp_station", note_station: "彰化" }),
-      api("agg", { date_from: dates[0], date_to: L, group_by: "note_station", resp_station: "彰化" }),
+      api("agg", { date_from: dates[0], date_to: aggTo, group_by: "resp_station", note_station: "彰化" }),
+      api("agg", { date_from: dates[0], date_to: aggTo, group_by: "note_station", resp_station: "彰化" }),
     ]);
     const draw = (id, rows, empty) => {
       const box = document.getElementById(id);
@@ -531,8 +551,9 @@ async function renderRank() {
   const dates = rangeDates();
   if (!dates.length) { el.innerHTML = `<div class="panel">尚無資料。</div>`; return; }
   const L = dates[dates.length - 1];
+  const aggTo = latestDataDate();
   el.innerHTML = `
-    <div class="panel"><h3>責任站誤裝訂筆數 Top 15</h3><div class="hint">期間 ${dates[0]} ～ ${L}（依明細責任站統計，粉紅＝彰嘉區站所）</div><div id="rk-resp" class="loading">統計中…</div></div>
+    <div class="panel"><h3>責任站誤裝訂筆數 Top 15</h3><div class="hint">期間 ${dates[0]} ～ ${aggTo}（依明細責任站統計，粉紅＝彰嘉區站所）</div><div id="rk-resp" class="loading">統計中…</div></div>
     <div class="panel"><h3>商品別分布</h3><div class="hint">同期間明細</div><div id="rk-prod" class="loading">統計中…</div></div>
     <div class="panel"><h3>發送站誤裝訂率排行</h3><div class="hint">期間 ${dates[0]} ～ ${L} 加總（統計表，含特殊站；點欄位標題可排序）　<label style="cursor:pointer"><input type="checkbox" id="stMinChk" ${stMinOn ? "checked" : ""}> 排除發送量 &lt; 1,000 筆的站</label></div><div class="tblwrap" id="rk-station"></div></div>`;
   document.getElementById("stMinChk").addEventListener("change", e => { stMinOn = e.target.checked; stationRateTable(document.getElementById("rk-station"), dates); });
@@ -540,8 +561,8 @@ async function renderRank() {
   try {
     const chSt = new Set(stationsOf("彰嘉區"));
     const [resp, prod] = await Promise.all([
-      api("agg", { date_from: dates[0], date_to: L, group_by: "resp_station" }),
-      api("agg", { date_from: dates[0], date_to: L, group_by: "product_type" }),
+      api("agg", { date_from: dates[0], date_to: aggTo, group_by: "resp_station" }),
+      api("agg", { date_from: dates[0], date_to: aggTo, group_by: "product_type" }),
     ]);
     const rb = document.getElementById("rk-resp"); rb.className = "";
     barChartH(rb, (resp.rows || []).slice(0, 15).map(r => ({ label: r.k, value: Number(r.cnt), sub: "筆", hl: chSt.has(r.k) || r.k === "彰化(彰轉)" || r.k === "彰化(低溫)" })));
@@ -581,8 +602,9 @@ function stationRateTable(el, dates) {
 // ---------- 明細查詢 ----------
 function renderDetail() {
   const el = document.getElementById("tab-detail");
-  const L = allDates[allDates.length - 1] || "";
-  const F = allDates[Math.max(0, allDates.length - 5)] || "";
+  const union = [...new Set([...allDates, ...detailDates.map(x => x.d)])].sort();
+  const L = union[union.length - 1] || "";
+  const F = union[Math.max(0, union.length - 5)] || "";
   const allStations = [...new Set(allStats.filter(s => s.scope === "station" || s.scope === "special").map(s => s.station_name))].sort();
   el.innerHTML = `
     <div class="panel">
@@ -707,7 +729,7 @@ async function fetchAllDetails(params, onProgress) {
 }
 function pad2(n) { return String(n).padStart(2, "0"); }
 function exportRange(kind) {
-  const L = allDates[allDates.length - 1];
+  const L = latestDataDate();
   if (!L) return null;
   const d = new Date(L + "T00:00:00");
   const y = d.getFullYear(), mo = d.getMonth();
@@ -1022,6 +1044,12 @@ document.getElementById("rangeSeg").addEventListener("click", e => {
 });
 let rsz;
 addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(() => { if (curTab === "overview" || curTab === "changhua") renderCurrent(); }, 250); });
+// 回到頁面（切分頁/手機解鎖）且資料超過 3 分鐘 → 自動重新載入，避免多裝置間看到舊資料
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !pass || !lastLoadTs) return;
+  if (Date.now() - lastLoadTs < 3 * 60 * 1000) return;
+  try { await loadDashboard(); if (curTab !== "upload") renderCurrent(); } catch {}
+});
 
 // ---------- 主題 ----------
 function applyTheme(t) {
