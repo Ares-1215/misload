@@ -890,7 +890,8 @@ function renderChuteMap() {
 }
 async function queryChq() {
   const tbl = document.getElementById("cqTbl");
-  tbl.innerHTML = `<div class="loading">查詢中…</div>`;
+  if (tbl.offsetHeight > 40) { tbl.style.minHeight = tbl.offsetHeight + "px"; tbl.style.opacity = ".45"; }
+  else tbl.innerHTML = `<div class="loading">查詢中…</div>`;
   try {
     const j = await api("details", {
       date_from: chqDay || null,
@@ -902,7 +903,7 @@ async function queryChq() {
     chqState.total = j.total || 0;
     document.getElementById("cqInfo").innerHTML = `共 ${fmtN(chqState.total)} 筆（彰化＋彰轉＋低溫＋籠車）　<span id="cqUnits"></span>`;
     loadUnitStats();
-    if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
+    if (!j.rows?.length) { tbl.style.minHeight = ""; tbl.style.opacity = ""; tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.className = "tblwrap cqwrap";
     tbl.innerHTML = `<table class="tbl cqt"><thead><tr>
@@ -918,8 +919,11 @@ async function queryChq() {
         <td class="num">${r.note_pieces ?? "—"}</td><td>${esc(r.note_code) || "—"}</td>
         <td>${md(r.note_date) || "—"}</td>
         ${fill3Html(r)}</tr>`).join("") + `</tbody></table>`;
+    tbl.style.minHeight = ""; tbl.style.opacity = "";
+    tbl.scrollTop = 0;
     renderChqPager();
   } catch (e) {
+    tbl.style.minHeight = ""; tbl.style.opacity = "";
     tbl.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
   }
 }
@@ -986,7 +990,8 @@ function renderDetail() {
 }
 async function queryDetails() {
   const tbl = document.getElementById("dTbl");
-  tbl.innerHTML = `<div class="loading">查詢中…</div>`;
+  if (tbl.offsetHeight > 40) { tbl.style.minHeight = tbl.offsetHeight + "px"; tbl.style.opacity = ".45"; }
+  else tbl.innerHTML = `<div class="loading">查詢中…</div>`;
   const p = {
     date_from: document.getElementById("dF").value || null,
     date_to: document.getElementById("dT").value || null,
@@ -1000,7 +1005,7 @@ async function queryDetails() {
     const j = await api("details", p);
     detailState.total = j.total || 0;
     document.getElementById("dInfo").textContent = `共 ${fmtN(detailState.total)} 筆`;
-    if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderPager(); return; }
+    if (!j.rows?.length) { tbl.style.minHeight = ""; tbl.style.opacity = ""; tbl.innerHTML = `<div class="loading">查無資料</div>`; renderPager(); return; }
     detailRowsById = {};
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.innerHTML = `<table class="tbl"><thead><tr>
@@ -1014,8 +1019,10 @@ async function queryDetails() {
         <td class="num">${fmtN(r.pieces)}</td>
         <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
         ${replyCellHtml(r)}</tr>`).join("") + `</tbody></table>`;
+    tbl.style.minHeight = ""; tbl.style.opacity = "";
     renderPager();
   } catch (e) {
+    tbl.style.minHeight = ""; tbl.style.opacity = "";
     tbl.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
   }
 }
