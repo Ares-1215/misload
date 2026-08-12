@@ -201,6 +201,9 @@ const fmtPP = d => (d >= 0 ? "+" : "") + (d * 100).toFixed(2) + "pp";
 const md = d => d ? d.slice(5).replace("-", "/") : "";
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const stName = s => s === "彰轉" ? "彰化(彰轉)" : s === "彰化低溫" ? "彰化(低溫)" : s; // 彰化系歸戶標示
+const CAGE_UNITS = ["鹿和籠車", "秀水籠車", "彰化籠車"];
+const chName = s => CAGE_UNITS.includes(s) ? "彰化籠車(秀籠)" : stName(s); // 彰化查件專用：籠車歸戶
+const UNIT_OPTS = ["發送", "到著", "冷鏈", "籠車"];
 const cssVar = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 // ---------- 登入 ----------
@@ -625,7 +628,7 @@ function renderChQuery() {
   const el = document.getElementById("tab-chquery");
   el.innerHTML = `
     <div class="panel">
-      <h3>彰化誤裝貨件戰情（責任站＝彰化／彰轉／彰化低溫）</h3>
+      <h3>彰化誤裝貨件戰情（責任站＝彰化／彰轉／低溫／籠車）</h3>
       <div class="hint">選擇發送日 → 下方查件清單、流向分析、道口熱點圖同步切換。點「十碼貨號」直接開該筆查件結果（需已登入貨物追蹤系統）。</div>
       <div id="cqDays" class="seg" style="flex-wrap:wrap; margin:6px 0"><button class="on" data-d="">全部</button></div>
       <div class="controls" style="margin-top:6px">
@@ -666,7 +669,7 @@ function renderChQuery() {
 async function buildDayChips() {
   try {
     if (!chqDates) {
-      const j = await api("agg", { date_from: "1900-01-01", date_to: "2100-12-31", group_by: "send_date", resp_station: "彰化" });
+      const j = await api("agg", { date_from: "1900-01-01", date_to: "2100-12-31", group_by: "send_date", resp_station: "彰化(含籠車)" });
       chqDates = (j.rows || []).map(r => ({ d: r.k, n: Number(r.cnt) })).sort((a, b) => a.d.localeCompare(b.d));
     }
     const box = document.getElementById("cqDays");
@@ -869,23 +872,24 @@ async function queryChq() {
     const j = await api("details", {
       date_from: chqDay || null,
       date_to: chqDay || null,
-      resp_station: "彰化",
+      resp_station: "彰化(含籠車)",
       note_station: document.getElementById("cqN").value.trim() || null,
       limit: chqState.limit, offset: chqState.offset,
     });
     chqState.total = j.total || 0;
-    document.getElementById("cqInfo").textContent = `共 ${fmtN(chqState.total)} 筆（彰化＋彰轉＋彰化低溫）`;
+    document.getElementById("cqInfo").innerHTML = `共 ${fmtN(chqState.total)} 筆（彰化＋彰轉＋低溫＋籠車）　<span id="cqUnits"></span>`;
+    loadUnitStats();
     if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.innerHTML = `<table class="tbl"><thead><tr>
-      <th>發送日</th><th>責任站</th><th>十碼貨號（點擊複製＋查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
+      <th>發送日</th><th>責任站</th><th>十碼貨號（點擊複製＋查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>商品別</th><th class="num">件數</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
       </tr></thead><tbody>` +
-      j.rows.map(r => `<tr${r.reply && r.reply.trim() ? ' class="replied"' : ""}>
-        <td>${md(r.send_date)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
+      j.rows.map(r => `<tr${(r.reply && r.reply.trim()) || r.resp_unit ? ' class="replied"' : ""}>
+        <td>${md(r.send_date)}</td><td><b>${esc(chName(r.resp_station))}</b></td>
         ${trackCell(r.tracking_no)}
         <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
-        <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
-        <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
+        <td>${md(r.note_date) || "—"}</td><td>${esc(r.product_type)}</td>
+        <td class="num">${fmtN(r.pieces)}</td>
         <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
         ${replyCellHtml(r)}</tr>`).join("") + `</tbody></table>`;
     renderChqPager();
@@ -974,14 +978,14 @@ async function queryDetails() {
     detailRowsById = {};
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.innerHTML = `<table class="tbl"><thead><tr>
-      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號（點擊查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
+      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號（點擊查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>商品別</th><th class="num">件數</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
       </tr></thead><tbody>` +
-      j.rows.map(r => `<tr${r.reply && r.reply.trim() ? ' class="replied"' : ""}>
+      j.rows.map(r => `<tr${(r.reply && r.reply.trim()) || r.resp_unit ? ' class="replied"' : ""}>
         <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
         ${trackCell(r.tracking_no)}
         <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
-        <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
-        <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
+        <td>${md(r.note_date) || "—"}</td><td>${esc(r.product_type)}</td>
+        <td class="num">${fmtN(r.pieces)}</td>
         <td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
         ${replyCellHtml(r)}</tr>`).join("") + `</tbody></table>`;
     renderPager();
@@ -991,8 +995,9 @@ async function queryDetails() {
 }
 let detailRowsById = {};
 function replyCellHtml(r) {
-  const has = r.reply && r.reply.trim();
-  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:120px" title="點擊填寫回報原因">${has ? `✅ ${esc(r.reply)}` : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
+  const has = (r.reply && r.reply.trim()) || r.resp_unit;
+  const unit = r.resp_unit ? `<span class="pill" style="border-color:var(--good);color:var(--good);margin-right:4px">${esc(r.resp_unit)}</span>` : "";
+  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:150px" title="點擊填寫負責單位與原因">${has ? `✅ ${unit}${esc(r.reply || "")}` : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
 }
 function onReplyClick(e) {
   const cell = e.target.closest("td.rcell");
@@ -1001,15 +1006,33 @@ function onReplyClick(e) {
   if (!r) return;
   cell.dataset.editing = "1";
   cell.style.cursor = "default";
-  cell.innerHTML = `<div style="display:flex;gap:6px;align-items:center">
-    <input class="rinput" style="border:1px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:6px;padding:4px 8px;font-size:13px;width:180px" maxlength="500" placeholder="回報原因…">
-    <button class="iconbtn rsave">儲存</button><button class="iconbtn rcancel">✕</button></div>`;
+  let selUnit = r.resp_unit || null;
+  cell.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px;min-width:230px">
+    <div style="display:flex;gap:4px" class="unitRow">
+      ${UNIT_OPTS.map(u => `<button class="iconbtn ubtn" data-u="${u}" style="padding:3px 10px;font-size:12px">${u}</button>`).join("")}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input class="rinput" style="border:1px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:6px;padding:4px 8px;font-size:13px;width:170px" maxlength="500" placeholder="原因說明（可留空）…">
+      <button class="iconbtn rsave" style="color:var(--good)">儲存</button><button class="iconbtn rcancel">✕</button>
+    </div></div>`;
+  const paintUnits = () => cell.querySelectorAll(".ubtn").forEach(b => {
+    const on = b.dataset.u === selUnit;
+    b.style.background = on ? "var(--accent)" : "var(--surface)";
+    b.style.color = on ? "#fff" : "var(--ink)";
+    b.style.borderColor = on ? "var(--accent)" : "var(--border)";
+  });
+  paintUnits();
+  cell.querySelectorAll(".ubtn").forEach(b => b.addEventListener("click", ev => {
+    ev.stopPropagation();
+    selUnit = selUnit === b.dataset.u ? null : b.dataset.u;  // 再點一次取消
+    paintUnits();
+  }));
   const input = cell.querySelector(".rinput");
   input.value = r.reply || "";
   input.focus();
   const done = () => {
     delete cell.dataset.editing; cell.style.cursor = "pointer";
-    cell.closest("tr").classList.toggle("replied", !!(r.reply && r.reply.trim()));
+    cell.closest("tr").classList.toggle("replied", !!((r.reply && r.reply.trim()) || r.resp_unit));
     cell.outerHTML = replyCellHtml(r);
   };
   cell.querySelector(".rcancel").addEventListener("click", ev => { ev.stopPropagation(); done(); });
@@ -1017,9 +1040,10 @@ function onReplyClick(e) {
     const v = input.value.trim();
     input.disabled = true;
     try {
-      const j = await api("update_reply", { id: Number(id), reply: v || null });
-      r.reply = j.reply;
+      const j = await api("update_reply", { id: Number(id), reply: v || null, unit: selUnit });
+      r.reply = j.reply; r.resp_unit = j.unit;
       done();
+      loadUnitStats();
     } catch (err) {
       alert("儲存失敗：" + err.message);
       input.disabled = false;
@@ -1027,6 +1051,20 @@ function onReplyClick(e) {
   };
   cell.querySelector(".rsave").addEventListener("click", ev => { ev.stopPropagation(); save(); });
   input.addEventListener("keydown", ev => { if (ev.key === "Enter") save(); if (ev.key === "Escape") done(); });
+}
+async function loadUnitStats() {
+  const el = document.getElementById("cqUnits");
+  if (!el) return;
+  try {
+    const j = await api("agg", {
+      date_from: chqDay || "1900-01-01", date_to: chqDay || "2100-12-31",
+      group_by: "resp_unit", resp_station: "彰化(含籠車)",
+    });
+    const m = {};
+    (j.rows || []).forEach(r => m[r.k] = Number(r.cnt));
+    const parts = UNIT_OPTS.filter(u => m[u]).map(u => `${u} <b>${m[u]}</b>`);
+    el.innerHTML = parts.length ? `｜ 責任歸屬：${parts.join("・")}　未填 <b>${m["(空白)"] || 0}</b>` : "";
+  } catch {}
 }
 
 // ---------- 匯出 Excel ----------
@@ -1091,15 +1129,15 @@ async function exportExcel(kind) {
   try {
     const { rows, total } = await fetchAllDetails(params, (n, t) => msg.textContent = `撈取資料中… ${fmtN(n)} / ${fmtN(t)}`);
     if (!rows.length) { msg.textContent = "此範圍查無明細，未產生檔案。"; return; }
-    const heads = ["發送日期", "區", "責任站", "作業日", "作業時間", "十碼貨號", "發送站", "寄貨人", "收貨地址", "發送件數", "到著站", "註區站", "註區碼", "註區日", "註區時間", "註區人員", "責任站回覆", "商品別"];
+    const heads = ["發送日期", "區", "責任站", "作業日", "作業時間", "十碼貨號", "發送站", "寄貨人", "收貨地址", "發送件數", "到著站", "註區站", "註區碼", "註區日", "註區時間", "註區人員", "負責單位", "責任站回覆", "商品別"];
     const aoa = [heads.map(h => sCell(h, HEADER_STYLE))];
     rows.forEach(r => aoa.push([
       r.send_date, r.region_name, r.resp_station, r.work_date, r.work_time, r.tracking_no,
       r.send_station, r.sender, r.address, r.pieces, r.dest_station, r.note_station,
-      r.note_code, r.note_date, r.note_time, r.note_staff, r.reply, r.product_type,
+      r.note_code, r.note_date, r.note_time, r.note_staff, r.resp_unit, r.reply, r.product_type,
     ].map(v => sCell(v))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 7, 11, 9, 10, 18, 9].map(w => ({ wch: w }));
+    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 7, 11, 9, 10, 9, 18, 9].map(w => ({ wch: w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "誤裝訂明細");
     // 統計工作表（該範圍有統計資料才加）
