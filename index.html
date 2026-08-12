@@ -603,6 +603,21 @@ function stationRateTable(el, dates) {
 
 // ---------- 彰化查件 ----------
 const CAG_URL = "https://cagweb.hct.com.tw:8080/apex.aspx?apex=CAGWEB.A_PIKAM010";
+// 深連結：直接開該筆貨件查詢結果（需已登入貨物追蹤系統）
+const cagDeep = no => `https://cagweb.hct.com.tw:8080/CAGWEB/C_PIKAM020.aspx?pACT=C_PIKAM010&pINVOICE_NO=${encodeURIComponent(no)}&pADDITION_NO=000&pHCd=&pHDay=`;
+function trackCell(no) {
+  return `<td><a class="trackLink" data-no="${esc(no)}" style="cursor:pointer;font-variant-numeric:tabular-nums;text-decoration:underline dotted;color:var(--accent)">${esc(no)}</a></td>`;
+}
+function tableClick(e) {
+  const t = e.target.closest(".trackLink");
+  if (t) {
+    const no = t.dataset.no;
+    navigator.clipboard?.writeText(no).catch(() => {});
+    window.open(cagDeep(no), "hct");
+    return;
+  }
+  onReplyClick(e);
+}
 let chqState = { offset: 0, limit: 50, total: 0 };
 function renderChQuery() {
   const el = document.getElementById("tab-chquery");
@@ -612,7 +627,7 @@ function renderChQuery() {
   el.innerHTML = `
     <div class="panel">
       <h3>彰化誤裝貨件查詢（責任站＝彰化／彰轉／彰化低溫）</h3>
-      <div class="hint">👆 點任一筆「十碼貨號」＝自動複製＋開啟公司貨物追蹤系統（登入一次後，每筆直接貼上查詢）。填寫回覆請點最後一欄。</div>
+      <div class="hint">👆 點任一筆「十碼貨號」直接開啟該筆貨件的查詢結果（需已登入貨物追蹤系統；未登入請先按右方按鈕登入一次）。填寫回覆請點最後一欄。</div>
       <div class="controls">
         <label>發送日（起）<input type="date" id="cqF" value="${F}"></label>
         <label>發送日（迄）<input type="date" id="cqT" value="${L}"></label>
@@ -625,18 +640,7 @@ function renderChQuery() {
       <div class="pager" id="cqPager"></div>
     </div>`;
   document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
-  document.getElementById("cqTbl").addEventListener("click", e => {
-    const t = e.target.closest(".trackLink");
-    if (t) {
-      const no = t.dataset.no;
-      navigator.clipboard?.writeText(no).catch(() => {});
-      window.open(CAG_URL, "hct");
-      t.textContent = "✅ " + no + "（已複製）";
-      setTimeout(() => { t.textContent = no; }, 2500);
-      return;
-    }
-    onReplyClick(e);
-  });
+  document.getElementById("cqTbl").addEventListener("click", tableClick);
   queryChq();
 }
 async function queryChq() {
@@ -659,7 +663,7 @@ async function queryChq() {
       </tr></thead><tbody>` +
       j.rows.map(r => `<tr${r.reply && r.reply.trim() ? ' class="replied"' : ""}>
         <td>${md(r.send_date)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
-        <td><a class="trackLink" data-no="${esc(r.tracking_no)}" style="cursor:pointer;font-variant-numeric:tabular-nums;text-decoration:underline dotted">${esc(r.tracking_no)}</a></td>
+        ${trackCell(r.tracking_no)}
         <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
         <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
         <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
@@ -727,7 +731,7 @@ function renderDetail() {
     </div>`;
   document.getElementById("dGo").addEventListener("click", () => { detailState.offset = 0; queryDetails(); });
   document.getElementById("dQ").addEventListener("keydown", e => { if (e.key === "Enter") { detailState.offset = 0; queryDetails(); } });
-  document.getElementById("dTbl").addEventListener("click", onReplyClick);
+  document.getElementById("dTbl").addEventListener("click", tableClick);
   loadRespStations();
   queryDetails();
 }
@@ -751,11 +755,11 @@ async function queryDetails() {
     detailRowsById = {};
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.innerHTML = `<table class="tbl"><thead><tr>
-      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
+      <th>發送日</th><th>區</th><th>責任站</th><th>十碼貨號（點擊查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>註區人員</th><th>商品別</th><th class="num">件數</th><th>寄貨人</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
       </tr></thead><tbody>` +
       j.rows.map(r => `<tr${r.reply && r.reply.trim() ? ' class="replied"' : ""}>
         <td>${md(r.send_date)}</td><td>${esc(r.region_name)}</td><td><b>${esc(stName(r.resp_station))}</b></td>
-        <td style="font-variant-numeric:tabular-nums">${esc(r.tracking_no)}</td>
+        ${trackCell(r.tracking_no)}
         <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
         <td>${md(r.note_date) || "—"}</td><td>${esc(r.note_staff) || "—"}</td><td>${esc(r.product_type)}</td>
         <td class="num">${fmtN(r.pieces)}</td><td>${esc(r.sender)}</td>
