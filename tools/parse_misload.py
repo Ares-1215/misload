@@ -39,6 +39,15 @@ def txt(v):
     s = str(v).strip().replace("\u3000", " ").strip()
     return s or None
 
+def npieces(v):
+    """\u8a3b\u5340\u4ef6\u6578\uff1axlsx \u5132\u5b58\u683c\u88ab\u8aa4\u6a19\u6210\u65e5\u671f\u683c\u5f0f\uff0copenpyxl \u6703\u56de datetime \u2192 \u9084\u539f\u6210 Excel \u5e8f\u865f=\u539f\u6578\u503c"""
+    if v is None: return None
+    if isinstance(v, datetime.datetime):
+        return (v - datetime.datetime(1899, 12, 31)).days
+    if isinstance(v, (int, float)): return int(v)
+    s = str(v).strip()
+    return int(float(s)) if re.fullmatch(r"\d+(\.\d+)?", s) else None
+
 def load_sheets(path):
     """xls/xlsx → {工作表名: 2D list}（日期→datetime、錯誤儲存格→None）"""
     sheets = {}
@@ -113,6 +122,7 @@ def parse_html_file(path):
             "sender": txt(c[7]), "address": txt(c[8]),
             "pieces": int(float(c[9])) if re.fullmatch(r"\d+(\.\d+)?", c[9]) else None,
             "dest_station": txt(c[10]), "note_station": txt(c[11]),
+            "note_pieces": int(float(c[12])) if re.fullmatch(r"\d+(\.\d+)?", c[12]) else None,
             "note_code": txt(c[13]), "note_date": ymd(c[14]), "note_time": hms(c[15]),
             "note_staff": txt(c[16]), "reply": txt(c[17]), "product_type": txt(c[18]),
         })
@@ -171,6 +181,7 @@ def parse_file(path):
             "pieces": int(ws2.cell(r, 13).value) if isinstance(ws2.cell(r, 13).value, (int, float)) else None,
             "dest_station": txt(ws2.cell(r, 14).value),
             "note_station": txt(ws2.cell(r, 15).value),
+            "note_pieces": npieces(ws2.cell(r, 16).value),
             "note_code": txt(ws2.cell(r, 17).value),
             "note_date": ymd(ws2.cell(r, 18).value),
             "note_time": hms(ws2.cell(r, 19).value),

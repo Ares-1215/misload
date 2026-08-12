@@ -203,7 +203,7 @@ const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").repl
 const stName = s => s === "彰轉" ? "彰化(彰轉)" : s === "彰化低溫" ? "彰化(低溫)" : s; // 彰化系歸戶標示
 const CAGE_UNITS = ["鹿和籠車", "秀水籠車", "彰化籠車"];
 const chName = s => CAGE_UNITS.includes(s) ? "彰化籠車(秀籠)" : stName(s); // 彰化查件專用：籠車歸戶
-const UNIT_OPTS = ["發送", "到著", "冷鏈", "籠車"];
+const UNIT_OPTS = ["發轉", "到轉", "冷鏈", "籠車"];
 const cssVar = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 // ---------- 登入 ----------
@@ -635,7 +635,11 @@ function renderChQuery() {
         <label>註區站<input id="cqN" style="width:100px" placeholder="全部"></label>
         <button class="btn" id="cqGo">查詢</button>
         <button class="btn ghost" onclick="window.open(CAG_URL,'hct')">🔗 開啟貨物追蹤系統</button>
+        <button class="btn ghost" onclick="exportUnitFile()">📤 產生單位填寫檔</button>
+        <button class="btn ghost" onclick="document.getElementById('fillFile').click()">📥 匯入單位回傳檔</button>
+        <input type="file" id="fillFile" accept=".xlsx,.xls" style="display:none">
       </div>
+      <div id="unitMsg" class="hint"></div>
     </div>
     <div class="panel">
       <h3>📋 查件清單</h3>
@@ -655,6 +659,9 @@ function renderChQuery() {
     </div>`;
   document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
   document.getElementById("cqTbl").addEventListener("click", tableClick);
+  document.getElementById("fillFile").addEventListener("change", e => {
+    if (e.target.files[0]) { importFillFile(e.target.files[0]); e.target.value = ""; }
+  });
   document.getElementById("cqDays").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     chqDay = b.dataset.d;
@@ -882,16 +889,18 @@ async function queryChq() {
     if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.innerHTML = `<table class="tbl"><thead><tr>
-      <th>發送日</th><th>責任站</th><th>十碼貨號（點擊複製＋查件）</th><th>發送站</th><th>到著站</th><th>註區站</th><th>註區日</th><th>商品別</th><th class="num">件數</th><th>收貨地址</th><th>責任站回覆（點擊填寫）</th>
+      <th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th><th>到著站</th><th>註區站</th><th class="num">註區件數</th><th>註區碼</th><th>註區日</th><th>責任單位</th><th>誤裝誤訂原因</th><th>改善方式</th>
       </tr></thead><tbody>` +
-      j.rows.map(r => `<tr${(r.reply && r.reply.trim()) || r.resp_unit ? ' class="replied"' : ""}>
-        <td>${md(r.send_date)}</td><td><b>${esc(chName(r.resp_station))}</b></td>
+      j.rows.map(r => `<tr data-rid="${r.id}"${hasFill(r) ? ' class="replied"' : ""}>
+        <td><b>${esc(chName(r.resp_station))}</b></td>
+        <td>${md(r.work_date) || "—"}</td><td>${esc(r.work_time) || "—"}</td>
         ${trackCell(r.tracking_no)}
-        <td>${esc(r.send_station)}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
-        <td>${md(r.note_date) || "—"}</td><td>${esc(r.product_type)}</td>
+        <td>${md(r.send_date)}</td><td>${esc(r.send_station)}</td>
         <td class="num">${fmtN(r.pieces)}</td>
-        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.address)}">${esc(r.address)}</td>
-        ${replyCellHtml(r)}</tr>`).join("") + `</tbody></table>`;
+        <td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
+        <td class="num">${r.note_pieces ?? "—"}</td><td>${esc(r.note_code) || "—"}</td>
+        <td>${md(r.note_date) || "—"}</td>
+        ${fill3Html(r)}</tr>`).join("") + `</tbody></table>`;
     renderChqPager();
   } catch (e) {
     tbl.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
@@ -994,63 +1003,194 @@ async function queryDetails() {
   }
 }
 let detailRowsById = {};
+const hasFill = r => !!((r.reply && r.reply.trim()) || r.resp_unit || (r.improve && r.improve.trim()));
+// 彰化查件：責任單位／原因／改善方式 三欄（點任一欄開啟填寫視窗）
+function fill3Html(r) {
+  const unit = r.resp_unit ? `<span class="pill" style="border-color:var(--good);color:var(--good)">${esc(r.resp_unit)}</span>` : `<span style="color:var(--muted)">✎</span>`;
+  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer" title="點擊填寫">${unit}</td>
+    <td class="rcell" data-id="${r.id}" style="cursor:pointer;max-width:230px;white-space:normal;min-width:130px">${esc(r.reply || "") || `<span style="color:var(--muted)">✎ 填寫</span>`}</td>
+    <td class="rcell" data-id="${r.id}" style="cursor:pointer;max-width:230px;white-space:normal;min-width:130px">${esc(r.improve || "") || `<span style="color:var(--muted)">—</span>`}</td>`;
+}
+// 明細查詢：單一回覆欄（顯示合併內容）
 function replyCellHtml(r) {
-  const has = (r.reply && r.reply.trim()) || r.resp_unit;
   const unit = r.resp_unit ? `<span class="pill" style="border-color:var(--good);color:var(--good);margin-right:4px">${esc(r.resp_unit)}</span>` : "";
-  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:150px" title="點擊填寫負責單位與原因">${has ? `✅ ${unit}${esc(r.reply || "")}` : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
+  const parts = [r.reply, r.improve && "改善：" + r.improve].filter(Boolean).join("｜");
+  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer;min-width:150px;max-width:280px;white-space:normal" title="點擊填寫">${hasFill(r) ? `✅ ${unit}${esc(parts)}` : `<span style="color:var(--muted)">✎ 填寫</span>`}</td>`;
 }
 function onReplyClick(e) {
   const cell = e.target.closest("td.rcell");
-  if (!cell || cell.dataset.editing) return;
-  const id = cell.dataset.id, r = detailRowsById[id];
-  if (!r) return;
-  cell.dataset.editing = "1";
-  cell.style.cursor = "default";
-  let selUnit = r.resp_unit || null;
-  cell.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px;min-width:230px">
-    <div style="display:flex;gap:4px" class="unitRow">
-      ${UNIT_OPTS.map(u => `<button class="iconbtn ubtn" data-u="${u}" style="padding:3px 10px;font-size:12px">${u}</button>`).join("")}
+  if (!cell) return;
+  openFillEditor(cell.dataset.id);
+}
+let fmCur = null;
+function ensureFillModal() {
+  if (document.getElementById("fillModal")) return;
+  const d = document.createElement("div");
+  d.id = "fillModal";
+  d.style.cssText = "display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:95;align-items:center;justify-content:center;padding:14px";
+  d.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;width:min(440px,94vw)">
+    <h3 style="font-size:15px;margin-bottom:2px">填寫回覆</h3>
+    <div class="hint" id="fmInfo" style="margin-bottom:10px"></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">責任單位</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px" id="fmUnits">
+      ${UNIT_OPTS.map(u => `<button class="iconbtn ubtn" data-u="${u}" style="flex:1;padding:8px 0">${u}</button>`).join("")}
     </div>
-    <div style="display:flex;gap:6px;align-items:center">
-      <input class="rinput" style="border:1px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:6px;padding:4px 8px;font-size:13px;width:170px" maxlength="500" placeholder="原因說明（可留空）…">
-      <button class="iconbtn rsave" style="color:var(--good)">儲存</button><button class="iconbtn rcancel">✕</button>
-    </div></div>`;
-  const paintUnits = () => cell.querySelectorAll(".ubtn").forEach(b => {
-    const on = b.dataset.u === selUnit;
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">誤裝誤訂原因</div>
+    <textarea id="fmReason" rows="2" maxlength="500" style="width:100%;border:1px solid var(--border);background:var(--page);color:var(--ink);border-radius:8px;padding:8px;font-size:13px;font-family:inherit;margin-bottom:10px"></textarea>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">改善方式</div>
+    <textarea id="fmImprove" rows="2" maxlength="500" style="width:100%;border:1px solid var(--border);background:var(--page);color:var(--ink);border-radius:8px;padding:8px;font-size:13px;font-family:inherit;margin-bottom:14px"></textarea>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="fmSave" style="flex:1">儲存</button>
+      <button class="btn ghost" id="fmCancel" style="flex:1">取消</button>
+    </div>
+    <div id="fmMsg" class="msg-err" style="margin-top:8px;font-size:12px"></div>
+  </div>`;
+  document.body.appendChild(d);
+  const paint = () => d.querySelectorAll(".ubtn").forEach(b => {
+    const on = b.dataset.u === (fmCur?.unit || null);
     b.style.background = on ? "var(--accent)" : "var(--surface)";
     b.style.color = on ? "#fff" : "var(--ink)";
     b.style.borderColor = on ? "var(--accent)" : "var(--border)";
   });
-  paintUnits();
-  cell.querySelectorAll(".ubtn").forEach(b => b.addEventListener("click", ev => {
-    ev.stopPropagation();
-    selUnit = selUnit === b.dataset.u ? null : b.dataset.u;  // 再點一次取消
-    paintUnits();
+  d.__paint = paint;
+  d.querySelectorAll(".ubtn").forEach(b => b.addEventListener("click", () => {
+    fmCur.unit = fmCur.unit === b.dataset.u ? null : b.dataset.u;
+    paint();
   }));
-  const input = cell.querySelector(".rinput");
-  input.value = r.reply || "";
-  input.focus();
-  const done = () => {
-    delete cell.dataset.editing; cell.style.cursor = "pointer";
-    cell.closest("tr").classList.toggle("replied", !!((r.reply && r.reply.trim()) || r.resp_unit));
-    cell.outerHTML = replyCellHtml(r);
-  };
-  cell.querySelector(".rcancel").addEventListener("click", ev => { ev.stopPropagation(); done(); });
-  const save = async () => {
-    const v = input.value.trim();
-    input.disabled = true;
+  d.addEventListener("click", ev => { if (ev.target === d) d.style.display = "none"; });
+  d.querySelector("#fmCancel").addEventListener("click", () => d.style.display = "none");
+  d.querySelector("#fmSave").addEventListener("click", async () => {
+    const r = detailRowsById[fmCur.id];
+    const btn = d.querySelector("#fmSave");
+    btn.disabled = true; d.querySelector("#fmMsg").textContent = "";
     try {
-      const j = await api("update_reply", { id: Number(id), reply: v || null, unit: selUnit });
-      r.reply = j.reply; r.resp_unit = j.unit;
-      done();
+      const j = await api("update_reply", {
+        id: Number(fmCur.id),
+        unit: fmCur.unit,
+        reply: d.querySelector("#fmReason").value.trim() || null,
+        improve: d.querySelector("#fmImprove").value.trim() || null,
+      });
+      r.resp_unit = j.unit; r.reply = j.reply; r.improve = j.improve;
+      refreshFillCells(fmCur.id);
       loadUnitStats();
+      d.style.display = "none";
     } catch (err) {
-      alert("儲存失敗：" + err.message);
-      input.disabled = false;
+      d.querySelector("#fmMsg").textContent = "儲存失敗：" + err.message;
     }
-  };
-  cell.querySelector(".rsave").addEventListener("click", ev => { ev.stopPropagation(); save(); });
-  input.addEventListener("keydown", ev => { if (ev.key === "Enter") save(); if (ev.key === "Escape") done(); });
+    btn.disabled = false;
+  });
+}
+function openFillEditor(id) {
+  const r = detailRowsById[id];
+  if (!r) return;
+  ensureFillModal();
+  const d = document.getElementById("fillModal");
+  fmCur = { id, unit: r.resp_unit || null };
+  d.querySelector("#fmInfo").textContent = `${md(r.send_date)}　${r.tracking_no}　${stName(r.resp_station)} → ${r.dest_station}（誤到 ${stName(r.note_station) || "?"}）`;
+  d.querySelector("#fmReason").value = r.reply || "";
+  d.querySelector("#fmImprove").value = r.improve || "";
+  d.querySelector("#fmMsg").textContent = "";
+  d.__paint();
+  d.style.display = "flex";
+}
+function refreshFillCells(id) {
+  const r = detailRowsById[id];
+  // 彰化查件三欄列
+  document.querySelectorAll(`#cqTbl tr[data-rid="${id}"]`).forEach(tr => {
+    const cells = tr.querySelectorAll("td.rcell");
+    if (cells.length === 3) {
+      const tmp = document.createElement("tbody");
+      tmp.innerHTML = `<tr>${fill3Html(r)}</tr>`;
+      cells.forEach((c, i) => c.replaceWith(tmp.querySelector("tr").children[0]));
+    }
+    tr.classList.toggle("replied", hasFill(r));
+  });
+  // 明細查詢單欄
+  document.querySelectorAll(`#dTbl td.rcell[data-id="${id}"]`).forEach(c => {
+    const tr = c.closest("tr");
+    c.outerHTML = replyCellHtml(r);
+    tr.classList.toggle("replied", hasFill(r));
+  });
+}
+// ---------- 產生單位填寫檔 / 匯入回傳檔 ----------
+const FILL_HEADS = ["責任站", "作業日", "作業時間", "十碼貨號", "發送日期", "發送站", "發送件數", "到著站", "註區站", "註區件數", "註區碼", "註區日", "責任單位", "誤裝誤訂原因", "改善方式"];
+const ymdCompact = d => d ? d.replaceAll("-", "") : "";
+async function exportUnitFile() {
+  const msg = document.getElementById("unitMsg");
+  const day = chqDay || (chqDates && chqDates.length ? chqDates[chqDates.length - 1].d : null);
+  if (!day) { msg.textContent = "尚無資料可產生"; return; }
+  msg.textContent = `撈取 ${day} 資料中…`;
+  try {
+    const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)" },
+      (n, t) => msg.textContent = `撈取中… ${n}/${t}`);
+    if (!rows.length) { msg.textContent = `${day} 查無彰化貨件`; return; }
+    const aoa = [FILL_HEADS.map(h => sCell(h, HEADER_STYLE))];
+    rows.forEach(r => aoa.push([
+      r.resp_station, ymdCompact(r.work_date), r.work_time, r.tracking_no, ymdCompact(r.send_date),
+      r.send_station, r.pieces, r.dest_station, r.note_station, r.note_pieces, r.note_code,
+      ymdCompact(r.note_date), r.resp_unit, r.reply, r.improve,
+    ].map(v => sCell(v))));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [8, 10, 9, 13, 10, 8, 9, 8, 8, 9, 8, 10, 9, 30, 30].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "本所");
+    const mmdd = day.slice(5).replace("-", "");
+    XLSX.writeFile(wb, `本所誤裝誤訂貨件_${mmdd}.xlsx`);
+    msg.innerHTML = `<span class="msg-ok">✅ 已產生 本所誤裝誤訂貨件_${mmdd}.xlsx（${fmtN(rows.length)} 筆），請發給各單位填寫。</span>`;
+  } catch (e) {
+    msg.innerHTML = `<span class="msg-err">產生失敗：${esc(e.message)}</span>`;
+  }
+}
+async function importFillFile(file) {
+  const msg = document.getElementById("unitMsg");
+  msg.textContent = "解析回傳檔中…";
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+    let hi = -1, cols = {};
+    for (let i = 0; i < Math.min(grid.length, 6); i++) {
+      const row = (grid[i] || []).map(v => String(v ?? "").trim());
+      if (row.includes("十碼貨號")) {
+        hi = i;
+        row.forEach((h, c) => {
+          if (h.includes("十碼貨號")) cols.no = c;
+          else if (h.includes("發送日期")) cols.sd = c;
+          else if (h.includes("責任單位")) cols.unit = c;
+          else if (h.includes("原因")) cols.reason = c;
+          else if (h.includes("改善")) cols.improve = c;
+        });
+        break;
+      }
+    }
+    if (hi < 0 || cols.no == null || cols.sd == null) throw new Error("找不到「十碼貨號／發送日期」標題列，請確認是單位填寫檔格式。");
+    const items = [];
+    for (let i = hi + 1; i < grid.length; i++) {
+      const row = grid[i] || [];
+      const sd = xYmd(row[cols.sd]);
+      let no = row[cols.no];
+      if (no == null || !sd) continue;
+      no = String(no).trim().replace(/\.0$/, "");
+      if (/^\d{1,10}$/.test(no)) no = no.padStart(10, "0");
+      const unit = cols.unit != null ? xTxt(row[cols.unit]) : null;
+      const reason = cols.reason != null ? xTxt(row[cols.reason]) : null;
+      const improve = cols.improve != null ? xTxt(row[cols.improve]) : null;
+      if (!unit && !reason && !improve) continue;
+      items.push({ send_date: sd, tracking_no: no, unit, reason, improve });
+    }
+    if (!items.length) { msg.textContent = "檔案裡沒有已填寫的資料列（責任單位／原因／改善都空白）。"; return; }
+    let matched = 0, missed = 0;
+    for (let i = 0; i < items.length; i += 100) {
+      const j = await api("import_fills", { rows: items.slice(i, i + 100) });
+      matched += j.matched; missed += j.missed;
+      msg.textContent = `匯入中… ${Math.min(i + 100, items.length)}/${items.length}`;
+    }
+    msg.innerHTML = `<span class="msg-ok">✅ 匯入完成：${fmtN(items.length)} 筆填寫、對到 ${fmtN(matched)} 筆明細${missed ? `、<span class="msg-err">${missed} 筆對不到（貨號/日期不符）</span>` : ""}。</span>`;
+    chqState.offset = 0;
+    queryChq();
+  } catch (e) {
+    msg.innerHTML = `<span class="msg-err">匯入失敗：${esc(e.message)}</span>`;
+  }
 }
 async function loadUnitStats() {
   const el = document.getElementById("cqUnits");
@@ -1129,15 +1269,15 @@ async function exportExcel(kind) {
   try {
     const { rows, total } = await fetchAllDetails(params, (n, t) => msg.textContent = `撈取資料中… ${fmtN(n)} / ${fmtN(t)}`);
     if (!rows.length) { msg.textContent = "此範圍查無明細，未產生檔案。"; return; }
-    const heads = ["發送日期", "區", "責任站", "作業日", "作業時間", "十碼貨號", "發送站", "寄貨人", "收貨地址", "發送件數", "到著站", "註區站", "註區碼", "註區日", "註區時間", "註區人員", "負責單位", "責任站回覆", "商品別"];
+    const heads = ["發送日期", "區", "責任站", "作業日", "作業時間", "十碼貨號", "發送站", "寄貨人", "收貨地址", "發送件數", "到著站", "註區站", "註區件數", "註區碼", "註區日", "註區時間", "註區人員", "責任單位", "誤裝誤訂原因", "改善方式", "商品別"];
     const aoa = [heads.map(h => sCell(h, HEADER_STYLE))];
     rows.forEach(r => aoa.push([
       r.send_date, r.region_name, r.resp_station, r.work_date, r.work_time, r.tracking_no,
-      r.send_station, r.sender, r.address, r.pieces, r.dest_station, r.note_station,
-      r.note_code, r.note_date, r.note_time, r.note_staff, r.resp_unit, r.reply, r.product_type,
+      r.send_station, r.sender, r.address, r.pieces, r.dest_station, r.note_station, r.note_pieces,
+      r.note_code, r.note_date, r.note_time, r.note_staff, r.resp_unit, r.reply, r.improve, r.product_type,
     ].map(v => sCell(v))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 7, 11, 9, 10, 9, 18, 9].map(w => ({ wch: w }));
+    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 9, 7, 11, 9, 10, 9, 22, 22, 9].map(w => ({ wch: w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "誤裝訂明細");
     // 統計工作表（該範圍有統計資料才加）
