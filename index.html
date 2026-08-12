@@ -68,6 +68,22 @@ table.tbl td.num, table.tbl th.num { text-align:right; }
 tr.replied td { background: rgba(12,163,12,.12); }
 tr.replied td:first-child { box-shadow: inset 3px 0 0 var(--good); }
 tr.replied td.rcell { color: var(--good); font-weight:600; }
+/* 彰化查件清單：專業表格（例外醒目 — 未回覆才強調） */
+.cqwrap { max-height: 620px; overflow: auto; border: 1px solid var(--grid); border-radius: 10px; -webkit-overflow-scrolling: touch; }
+.cqwrap table.tbl { border-collapse: separate; border-spacing: 0; }
+.cqwrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 5; box-shadow: 0 1px 0 var(--grid); padding: 9px 9px; }
+table.cqt th, table.cqt td { white-space: nowrap; }
+table.cqt td { padding: 7px 9px; border-bottom: 1px solid var(--grid); }
+table.cqt tbody tr:nth-child(even) td { background: rgba(137,135,129,.055); }
+table.cqt tbody tr:hover td { background: rgba(42,120,214,.09); }
+table.cqt td.wrapcol { white-space: normal; min-width: 170px; max-width: 250px; line-height: 1.35; font-size: 12.5px; }
+tr.rowdone td:first-child { box-shadow: inset 3px 0 0 var(--good); }
+tr.rowpend td { background: rgba(237,161,0,.09) !important; }
+tr.rowpend td:first-child { box-shadow: inset 3px 0 0 var(--s4); }
+.upill { display:inline-block; padding: 2px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700; border: 1.5px solid; }
+.cqprog { display:inline-flex; align-items:center; gap:8px; }
+.cqprog .bar { width: 130px; height: 8px; border-radius: 5px; background: var(--grid); overflow: hidden; display:inline-block; }
+.cqprog .bar > i { display:block; height: 100%; background: var(--good); }
 .tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 .hl { font-weight:700; color:var(--accent); }
 .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--border); color:var(--ink-2); }
@@ -888,10 +904,11 @@ async function queryChq() {
     loadUnitStats();
     if (!j.rows?.length) { tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
     j.rows.forEach(r => detailRowsById[r.id] = r);
-    tbl.innerHTML = `<table class="tbl"><thead><tr>
+    tbl.className = "tblwrap cqwrap";
+    tbl.innerHTML = `<table class="tbl cqt"><thead><tr>
       <th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th><th>到著站</th><th>註區站</th><th class="num">註區件數</th><th>註區碼</th><th>註區日</th><th>責任單位</th><th>誤裝誤訂原因</th><th>改善方式</th>
       </tr></thead><tbody>` +
-      j.rows.map(r => `<tr data-rid="${r.id}"${hasFill(r) ? ' class="replied"' : ""}>
+      j.rows.map(r => `<tr data-rid="${r.id}" class="${hasFill(r) ? "rowdone" : "rowpend"}">
         <td><b>${esc(chName(r.resp_station))}</b></td>
         <td>${md(r.work_date) || "—"}</td><td>${esc(r.work_time) || "—"}</td>
         ${trackCell(r.tracking_no)}
@@ -1005,11 +1022,16 @@ async function queryDetails() {
 let detailRowsById = {};
 const hasFill = r => !!((r.reply && r.reply.trim()) || r.resp_unit || (r.improve && r.improve.trim()));
 // 彰化查件：責任單位／原因／改善方式 三欄（點任一欄開啟填寫視窗）
+const UNIT_COLOR = { "發轉": "--s1", "到轉": "--s3", "冷鏈": "--s7", "籠車": "--s2" };
+function unitPill(u) {
+  if (!u) return `<span style="color:var(--s4);font-weight:600">✎ 待回覆</span>`;
+  const cv = UNIT_COLOR[u] || "--good";
+  return `<span class="upill" style="border-color:var(${cv});color:var(${cv})">${esc(u)}</span>`;
+}
 function fill3Html(r) {
-  const unit = r.resp_unit ? `<span class="pill" style="border-color:var(--good);color:var(--good)">${esc(r.resp_unit)}</span>` : `<span style="color:var(--muted)">✎</span>`;
-  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer" title="點擊填寫">${unit}</td>
-    <td class="rcell" data-id="${r.id}" style="cursor:pointer;max-width:230px;white-space:normal;min-width:130px">${esc(r.reply || "") || `<span style="color:var(--muted)">✎ 填寫</span>`}</td>
-    <td class="rcell" data-id="${r.id}" style="cursor:pointer;max-width:230px;white-space:normal;min-width:130px">${esc(r.improve || "") || `<span style="color:var(--muted)">—</span>`}</td>`;
+  return `<td class="rcell" data-id="${r.id}" style="cursor:pointer" title="點擊填寫">${unitPill(r.resp_unit)}</td>
+    <td class="rcell wrapcol" data-id="${r.id}" style="cursor:pointer" title="點擊填寫">${esc(r.reply || "") || `<span style="color:var(--muted)">—</span>`}</td>
+    <td class="rcell wrapcol" data-id="${r.id}" style="cursor:pointer" title="點擊填寫">${esc(r.improve || "") || `<span style="color:var(--muted)">—</span>`}</td>`;
 }
 // 明細查詢：單一回覆欄（顯示合併內容）
 function replyCellHtml(r) {
@@ -1103,7 +1125,8 @@ function refreshFillCells(id) {
       tmp.innerHTML = `<tr>${fill3Html(r)}</tr>`;
       cells.forEach((c, i) => c.replaceWith(tmp.querySelector("tr").children[0]));
     }
-    tr.classList.toggle("replied", hasFill(r));
+    tr.classList.toggle("rowdone", hasFill(r));
+    tr.classList.toggle("rowpend", !hasFill(r));
   });
   // 明細查詢單欄
   document.querySelectorAll(`#dTbl td.rcell[data-id="${id}"]`).forEach(c => {
@@ -1201,9 +1224,18 @@ async function loadUnitStats() {
       group_by: "resp_unit", resp_station: "彰化(含籠車)",
     });
     const m = {};
-    (j.rows || []).forEach(r => m[r.k] = Number(r.cnt));
-    const parts = UNIT_OPTS.filter(u => m[u]).map(u => `${u} <b>${m[u]}</b>`);
-    el.innerHTML = parts.length ? `｜ 責任歸屬：${parts.join("・")}　未填 <b>${m["(空白)"] || 0}</b>` : "";
+    let total = 0;
+    (j.rows || []).forEach(r => { m[r.k] = Number(r.cnt); total += Number(r.cnt); });
+    if (!total) { el.innerHTML = ""; return; }
+    const pend = m["(空白)"] || 0;
+    const done = total - pend;
+    const pct = Math.round(done / total * 100);
+    const chips = UNIT_OPTS.filter(u => m[u]).map(u => {
+      const cv = UNIT_COLOR[u] || "--good";
+      return `<span class="upill" style="border-color:var(${cv});color:var(${cv})">${u} ${m[u]}</span>`;
+    }).join(" ");
+    el.innerHTML = `｜ ${chips}${pend ? ` <span class="upill" style="border-color:var(--s4);color:var(--s4)">待回覆 ${pend}</span>` : ""}
+      　<span class="cqprog"><span class="bar"><i style="width:${pct}%"></i></span><b style="color:var(--${pct === 100 ? "good" : "ink"})">${pct}%</b> 已回覆</span>`;
   } catch {}
 }
 
