@@ -1309,12 +1309,12 @@ function renderPivot() {
     const list = items.filter(i => i._u === u && i._c === k);
     const dr = document.getElementById("pv-drill");
     if (!list.length) { dr.innerHTML = ""; return; }
-    dr.innerHTML = `<div class="hint"><b>${esc(u)}・${esc(k)}</b> 共 ${list.length} 筆（點貨號查件）：</div>
-      <div style="max-height:180px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 10px;font-size:12px">` +
-      list.map(i => `<div style="display:flex;gap:8px;padding:2px 0;align-items:baseline">
+    dr.innerHTML = `<div style="font-size:14px;margin-bottom:6px"><b>${esc(u)}・${esc(k)}</b> 共 ${list.length} 筆（點貨號查件）：</div>
+      <div style="max-height:280px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:8px 12px;font-size:14.5px;line-height:1.7">` +
+      list.map(i => `<div style="display:flex;gap:12px;padding:4px 0;align-items:baseline;border-bottom:1px solid var(--grid)">
         <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
-        <a class="trackLink" data-no="${esc(i.tracking_no)}" style="cursor:pointer;color:var(--accent);flex-shrink:0">${esc(i.tracking_no)}</a>
-        <span style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.reply || "（未填原因）")}</span></div>`).join("") + `</div>`;
+        <a class="trackLink" data-no="${esc(i.tracking_no)}" style="cursor:pointer;color:var(--accent);flex-shrink:0;font-variant-numeric:tabular-nums;font-weight:600">${esc(i.tracking_no)}</a>
+        <span style="color:var(--ink)">${esc(i.reply || "（未填原因）")}${i.improve ? `　<span style="color:var(--ink-2)">改善：${esc(i.improve)}</span>` : ""}</span></div>`).join("") + `</div>`;
     dr.onclick = tableClick;
   }));
 }
