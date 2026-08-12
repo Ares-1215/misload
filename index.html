@@ -638,10 +638,79 @@ function renderChQuery() {
       <div id="cqInfo" class="hint"></div>
       <div class="tblwrap" id="cqTbl"><div class="loading">查詢中…</div></div>
       <div class="pager" id="cqPager"></div>
+    </div>
+    <div class="panel">
+      <h3>🛰️ 貨件流向分析</h3>
+      <div class="hint">追蹤每筆彰化責任貨件在貨物追蹤系統的完整歷程（誤到哪、多久攔到、何時配達）。要更新請跟 Claude 說「追彰化流向」。</div>
+      <div id="flowBox" class="loading">載入中…</div>
     </div>`;
   document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
   document.getElementById("cqTbl").addEventListener("click", tableClick);
   queryChq();
+  loadFlows();
+}
+async function loadFlows() {
+  const box = document.getElementById("flowBox");
+  if (!box) return;
+  try {
+    const j = await api("flows", {});
+    const rows = j.rows || [];
+    if (!rows.length) { box.className = ""; box.innerHTML = `<div class="hint">尚無流向分析資料。</div>`; return; }
+    const crawled = rows.map(r => r.crawled_at).sort().pop();
+    const del = rows.filter(r => (r.final_status || "").startsWith("配交"));
+    const ontime = del.filter(r => (r.delay_days ?? 9) <= 1);
+    const late = del.filter(r => (r.delay_days ?? 0) >= 2);
+    const onway = rows.filter(r => (r.final_status || "").startsWith("在途"));
+    const hrs = rows.map(r => r.catch_hours).filter(h => h != null).map(Number).sort((a, b) => a - b);
+    const avgH = hrs.length ? (hrs.reduce((a, b) => a + b, 0) / hrs.length).toFixed(1) : "—";
+    const medH = hrs.length ? hrs[Math.floor(hrs.length / 2)].toFixed(1) : "—";
+    const wc = {};
+    rows.forEach(r => { const k = r.wrong_station || "?"; wc[k] = (wc[k] || 0) + 1; });
+    const pairs = {};
+    rows.forEach(r => { const k = `${r.wrong_station || "?"} → ${r.dest_station || "?"}`; pairs[k] = (pairs[k] || 0) + 1; });
+    const ptop = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const dates = [...new Set(rows.map(r => r.send_date))].sort();
+    box.className = "";
+    box.innerHTML = `
+      <div class="hint">分析範圍：發送日 ${dates[0]} ～ ${dates[dates.length - 1]}　共 ${fmtN(rows.length)} 筆　（更新於 ${new Date(crawled).toLocaleString("zh-Hant", { hour12: false })}）</div>
+      <div class="cards" style="margin-top:8px">
+        ${kpiCard("✅ 準時配交（D+1內）", fmtN(ontime.length), `占已配交 ${del.length ? Math.round(ontime.length / del.length * 100) : 0}%`)}
+        ${kpiCard("🔴 延誤配交（D+2起）", fmtN(late.length), `占已配交 ${del.length ? Math.round(late.length / del.length * 100) : 0}%`)}
+        ${kpiCard("🚚 在途未結案", fmtN(onway.length), "含今日尚未配達")}
+        ${kpiCard("⏱️ 平均攔截時間", avgH + " 小時", `中位 ${medH}h・誤到後被誤站發現處理`)}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:6px">
+        <div><h3 style="font-size:13px;margin-bottom:6px">誤流站 Top 10</h3><div id="fl-wrong"></div></div>
+        <div><h3 style="font-size:13px;margin-bottom:6px">誤到 → 應到 配對 Top 8</h3>
+          <table class="tbl">${ptop.map(([k, n]) => `<tr><td>${esc(k)}</td><td class="num"><b>${n}</b> 筆</td></tr>`).join("")}</table>
+        </div>
+      </div>
+      <h3 style="font-size:13px;margin:14px 0 6px">逐筆流向（點貨號查件）</h3>
+      <div class="tblwrap" id="fl-tbl"></div>`;
+    barChartH(document.getElementById("fl-wrong"),
+      Object.entries(wc).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, n]) => ({ label: k, value: n, sub: "筆" })));
+    const badge = r => {
+      const fs = r.final_status || "";
+      if (fs.startsWith("配交")) {
+        const lateDays = (r.delay_days ?? 1) - 1;
+        return lateDays <= 0
+          ? `<span style="color:var(--good);font-weight:600">✅ 準時 ${esc(fs.split(":")[1] || "")}</span>`
+          : `<span style="color:var(--bad);font-weight:600">🔴 晚${lateDays}天 ${esc(fs.split(":")[1] || "")}</span>`;
+      }
+      return `<span style="color:var(--s4);font-weight:600">🚚 ${esc(fs.split(":")[1] || "在途")}</span>`;
+    };
+    document.getElementById("fl-tbl").innerHTML = `<table class="tbl"><thead><tr>
+      <th>發送日</th><th>十碼貨號</th><th>應到</th><th>誤到</th><th class="num">攔截(時)</th><th>狀態</th><th>配達日</th></tr></thead><tbody>` +
+      rows.map(r => `<tr>
+        <td>${md(r.send_date)}</td>${trackCell(r.tracking_no)}
+        <td>${esc(r.dest_station)}</td><td><b>${esc(r.wrong_station)}</b></td>
+        <td class="num">${r.catch_hours ?? "—"}</td><td>${badge(r)}</td><td>${esc(r.deliver_date) || "—"}</td></tr>`).join("") +
+      `</tbody></table>`;
+    document.getElementById("fl-tbl").addEventListener("click", tableClick);
+  } catch (e) {
+    box.className = "";
+    box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
+  }
 }
 async function queryChq() {
   const tbl = document.getElementById("cqTbl");
