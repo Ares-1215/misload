@@ -619,106 +619,256 @@ function tableClick(e) {
   onReplyClick(e);
 }
 let chqState = { offset: 0, limit: 50, total: 0 };
+let chqDay = "";                 // '' = 全部
+let flowsCache = null, chutesCache = null, chqDates = null;
 function renderChQuery() {
   const el = document.getElementById("tab-chquery");
-  const union = [...new Set([...allDates, ...detailDates.map(x => x.d)])].sort();
-  const L = union[union.length - 1] || "";
-  const F = union[Math.max(0, union.length - 5)] || "";
   el.innerHTML = `
     <div class="panel">
-      <h3>彰化誤裝貨件查詢（責任站＝彰化／彰轉／彰化低溫）</h3>
-      <div class="hint">👆 點任一筆「十碼貨號」直接開啟該筆貨件的查詢結果（需已登入貨物追蹤系統；未登入請先按右方按鈕登入一次）。填寫回覆請點最後一欄。</div>
-      <div class="controls">
-        <label>發送日（起）<input type="date" id="cqF" value="${F}"></label>
-        <label>發送日（迄）<input type="date" id="cqT" value="${L}"></label>
+      <h3>彰化誤裝貨件戰情（責任站＝彰化／彰轉／彰化低溫）</h3>
+      <div class="hint">選擇發送日 → 下方查件清單、流向分析、道口熱點圖同步切換。點「十碼貨號」直接開該筆查件結果（需已登入貨物追蹤系統）。</div>
+      <div id="cqDays" class="seg" style="flex-wrap:wrap; margin:6px 0"><button class="on" data-d="">全部</button></div>
+      <div class="controls" style="margin-top:6px">
         <label>註區站<input id="cqN" style="width:100px" placeholder="全部"></label>
         <button class="btn" id="cqGo">查詢</button>
         <button class="btn ghost" onclick="window.open(CAG_URL,'hct')">🔗 開啟貨物追蹤系統</button>
       </div>
+    </div>
+    <div class="panel">
+      <h3>📋 查件清單</h3>
       <div id="cqInfo" class="hint"></div>
       <div class="tblwrap" id="cqTbl"><div class="loading">查詢中…</div></div>
       <div class="pager" id="cqPager"></div>
     </div>
     <div class="panel">
       <h3>🛰️ 貨件流向分析</h3>
-      <div class="hint">追蹤每筆彰化責任貨件在貨物追蹤系統的完整歷程（誤到哪、多久攔到、何時配達）。要更新請跟 Claude 說「追彰化流向」。</div>
+      <div class="hint">每筆貨的完整旅程：誤到哪、多久被攔到、最後何時配達。點列首「▸」展開完整作業歷程時間軸。要更新請跟 Claude 說「追彰化流向」。</div>
       <div id="flowBox" class="loading">載入中…</div>
+    </div>
+    <div class="panel">
+      <h3>🗺️ 彰化分貨道口誤流熱點圖</h3>
+      <div class="hint">依「彰化所流道設定」繪製上下兩排道口；紅色深淺＝誤流件數（貨被錯裝進該站籠位）。滑鼠移到道口可看站所與明細。</div>
+      <div id="chuteBox" class="loading">載入中…</div>
     </div>`;
   document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
   document.getElementById("cqTbl").addEventListener("click", tableClick);
+  document.getElementById("cqDays").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    chqDay = b.dataset.d;
+    document.querySelectorAll("#cqDays button").forEach(x => x.classList.toggle("on", x === b));
+    chqState.offset = 0;
+    queryChq(); renderFlowPanel(); renderChuteMap();
+  });
+  buildDayChips();
   queryChq();
-  loadFlows();
+  loadFlowData();
 }
-async function loadFlows() {
-  const box = document.getElementById("flowBox");
-  if (!box) return;
+async function buildDayChips() {
   try {
-    const j = await api("flows", {});
-    const rows = j.rows || [];
-    if (!rows.length) { box.className = ""; box.innerHTML = `<div class="hint">尚無流向分析資料。</div>`; return; }
-    const crawled = rows.map(r => r.crawled_at).sort().pop();
-    const del = rows.filter(r => (r.final_status || "").startsWith("配交"));
-    const ontime = del.filter(r => (r.delay_days ?? 9) <= 1);
-    const late = del.filter(r => (r.delay_days ?? 0) >= 2);
-    const onway = rows.filter(r => (r.final_status || "").startsWith("在途"));
-    const hrs = rows.map(r => r.catch_hours).filter(h => h != null).map(Number).sort((a, b) => a - b);
-    const avgH = hrs.length ? (hrs.reduce((a, b) => a + b, 0) / hrs.length).toFixed(1) : "—";
-    const medH = hrs.length ? hrs[Math.floor(hrs.length / 2)].toFixed(1) : "—";
-    const wc = {};
-    rows.forEach(r => { const k = r.wrong_station || "?"; wc[k] = (wc[k] || 0) + 1; });
-    const pairs = {};
-    rows.forEach(r => { const k = `${r.wrong_station || "?"} → ${r.dest_station || "?"}`; pairs[k] = (pairs[k] || 0) + 1; });
-    const ptop = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const dates = [...new Set(rows.map(r => r.send_date))].sort();
-    box.className = "";
-    box.innerHTML = `
-      <div class="hint">分析範圍：發送日 ${dates[0]} ～ ${dates[dates.length - 1]}　共 ${fmtN(rows.length)} 筆　（更新於 ${new Date(crawled).toLocaleString("zh-Hant", { hour12: false })}）</div>
-      <div class="cards" style="margin-top:8px">
-        ${kpiCard("✅ 準時配交（D+1內）", fmtN(ontime.length), `占已配交 ${del.length ? Math.round(ontime.length / del.length * 100) : 0}%`)}
-        ${kpiCard("🔴 延誤配交（D+2起）", fmtN(late.length), `占已配交 ${del.length ? Math.round(late.length / del.length * 100) : 0}%`)}
-        ${kpiCard("🚚 在途未結案", fmtN(onway.length), "含今日尚未配達")}
-        ${kpiCard("⏱️ 平均攔截時間", avgH + " 小時", `中位 ${medH}h・誤到後被誤站發現處理`)}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:6px">
-        <div><h3 style="font-size:13px;margin-bottom:6px">誤流站 Top 10</h3><div id="fl-wrong"></div></div>
-        <div><h3 style="font-size:13px;margin-bottom:6px">誤到 → 應到 配對 Top 8</h3>
-          <table class="tbl">${ptop.map(([k, n]) => `<tr><td>${esc(k)}</td><td class="num"><b>${n}</b> 筆</td></tr>`).join("")}</table>
-        </div>
-      </div>
-      <h3 style="font-size:13px;margin:14px 0 6px">逐筆流向（點貨號查件）</h3>
-      <div class="tblwrap" id="fl-tbl"></div>`;
-    barChartH(document.getElementById("fl-wrong"),
-      Object.entries(wc).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, n]) => ({ label: k, value: n, sub: "筆" })));
-    const badge = r => {
-      const fs = r.final_status || "";
-      if (fs.startsWith("配交")) {
-        const lateDays = (r.delay_days ?? 1) - 1;
-        return lateDays <= 0
-          ? `<span style="color:var(--good);font-weight:600">✅ 準時 ${esc(fs.split(":")[1] || "")}</span>`
-          : `<span style="color:var(--bad);font-weight:600">🔴 晚${lateDays}天 ${esc(fs.split(":")[1] || "")}</span>`;
-      }
-      return `<span style="color:var(--s4);font-weight:600">🚚 ${esc(fs.split(":")[1] || "在途")}</span>`;
-    };
-    document.getElementById("fl-tbl").innerHTML = `<table class="tbl"><thead><tr>
-      <th>發送日</th><th>十碼貨號</th><th>應到</th><th>誤到</th><th class="num">攔截(時)</th><th>狀態</th><th>配達日</th></tr></thead><tbody>` +
-      rows.map(r => `<tr>
-        <td>${md(r.send_date)}</td>${trackCell(r.tracking_no)}
-        <td>${esc(r.dest_station)}</td><td><b>${esc(r.wrong_station)}</b></td>
-        <td class="num">${r.catch_hours ?? "—"}</td><td>${badge(r)}</td><td>${esc(r.deliver_date) || "—"}</td></tr>`).join("") +
-      `</tbody></table>`;
-    document.getElementById("fl-tbl").addEventListener("click", tableClick);
+    if (!chqDates) {
+      const j = await api("agg", { date_from: "1900-01-01", date_to: "2100-12-31", group_by: "send_date", resp_station: "彰化" });
+      chqDates = (j.rows || []).map(r => ({ d: r.k, n: Number(r.cnt) })).sort((a, b) => a.d.localeCompare(b.d));
+    }
+    const box = document.getElementById("cqDays");
+    if (!box) return;
+    box.innerHTML = `<button class="${chqDay === "" ? "on" : ""}" data-d="">全部</button>` +
+      chqDates.map(x => `<button class="${chqDay === x.d ? "on" : ""}" data-d="${x.d}">${md(x.d)}<span style="opacity:.65">(${x.n})</span></button>`).join("");
+  } catch {}
+}
+async function loadFlowData() {
+  try {
+    const [fj, cj] = await Promise.all([api("flows", {}), chutesCache ? Promise.resolve(null) : api("chutes", {})]);
+    flowsCache = fj.rows || [];
+    if (cj) chutesCache = cj.rows || [];
+    renderFlowPanel();
+    renderChuteMap();
   } catch (e) {
-    box.className = "";
-    box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`;
+    const box = document.getElementById("flowBox");
+    if (box) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
   }
+}
+// 站名 → 該站被指派的道口清單 [{chute_no, side, pos}]
+function stationChutes(name) {
+  if (!chutesCache || !name) return [];
+  const out = [];
+  for (const c of chutesCache)
+    if ((c.stations || []).some(s => s.name === name)) out.push(c);
+  return out;
+}
+// 兩站道口關係描述
+function chuteRelation(wrong, dest) {
+  const a = stationChutes(wrong), b = stationChutes(dest);
+  if (!a.length || !b.length) return null;
+  let best = null;
+  for (const x of a) for (const y of b) {
+    const rel = x.side === y.side ? Math.abs(x.pos - y.pos) : 99;
+    if (!best || rel < best.rel) best = { rel, x, y };
+  }
+  if (!best) return null;
+  if (best.rel === 0) return { txt: "同道口", hot: true, pair: best };
+  if (best.rel === 1) return { txt: "相鄰道口", hot: true, pair: best };
+  if (best.rel === 99) return { txt: "對面排", hot: false, pair: best };
+  return { txt: `隔 ${best.rel} 格`, hot: best.rel <= 2, pair: best };
+}
+function flowsOfDay() {
+  if (!flowsCache) return [];
+  return chqDay ? flowsCache.filter(r => r.send_date === chqDay) : flowsCache;
+}
+function renderFlowPanel() {
+  const box = document.getElementById("flowBox");
+  if (!box || !flowsCache) return;
+  const rows = flowsOfDay();
+  box.className = "";
+  if (!rows.length) { box.innerHTML = `<div class="hint">${chqDay ? md(chqDay) + " 尚無流向分析資料（跟 Claude 說「追彰化流向」產生）" : "尚無流向分析資料"}</div>`; return; }
+  const crawled = rows.map(r => r.crawled_at).sort().pop();
+  const del = rows.filter(r => (r.final_status || "").startsWith("配交"));
+  const ontime = del.filter(r => (r.delay_days ?? 9) <= 1);
+  const late = del.filter(r => (r.delay_days ?? 0) >= 2);
+  const onway = rows.filter(r => (r.final_status || "").startsWith("在途"));
+  const hrs = rows.map(r => r.catch_hours).filter(h => h != null).map(Number).sort((a, b) => a - b);
+  const avgH = hrs.length ? (hrs.reduce((a, b) => a + b, 0) / hrs.length).toFixed(1) : "—";
+  const medH = hrs.length ? hrs[Math.floor(hrs.length / 2)].toFixed(1) : "—";
+  const wc = {};
+  rows.forEach(r => { const k = r.wrong_station || "?"; wc[k] = (wc[k] || 0) + 1; });
+  const pairs = {};
+  rows.forEach(r => { const k = `${r.wrong_station || "?"}→${r.dest_station || "?"}`; pairs[k] = (pairs[k] || 0) + 1; });
+  const ptop = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  box.innerHTML = `
+    <div class="hint">範圍：${chqDay ? "發送日 " + chqDay : "全部日期"}　共 ${fmtN(rows.length)} 筆　（更新於 ${new Date(crawled).toLocaleString("zh-Hant", { hour12: false })}）</div>
+    <div class="cards" style="margin-top:8px">
+      ${kpiCard("✅ 準時配交（D+1內）", fmtN(ontime.length), `占已配交 ${del.length ? Math.round(ontime.length / del.length * 100) : 0}%`)}
+      ${kpiCard("🔴 延誤配交（D+2起）", fmtN(late.length), `占已配交 ${del.length ? Math.round(late.length / del.length * 100) : 0}%`)}
+      ${kpiCard("🚚 在途未結案", fmtN(onway.length), "含今日尚未配達")}
+      ${kpiCard("⏱️ 平均攔截時間", avgH + " 小時", `中位 ${medH}h・誤到後被發現處理`)}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:6px">
+      <div><h3 style="font-size:13px;margin-bottom:6px">誤流站 Top 10</h3><div id="fl-wrong"></div></div>
+      <div><h3 style="font-size:13px;margin-bottom:6px">誤到→應到 配對（含道口關係）</h3>
+        <table class="tbl">${ptop.map(([k, n]) => {
+          const [w, d] = k.split("→");
+          const rel = chuteRelation(w, d);
+          return `<tr><td>${esc(w)} → ${esc(d)}</td>
+            <td>${rel ? `<span class="pill" ${rel.hot ? 'style="border-color:var(--bad);color:var(--bad)"' : ""}>${rel.txt}</span>` : ""}</td>
+            <td class="num"><b>${n}</b> 筆</td></tr>`;
+        }).join("")}</table>
+      </div>
+    </div>
+    <h3 style="font-size:13px;margin:14px 0 6px">逐筆流向（點「▸」展開完整歷程、點貨號查件）</h3>
+    <div class="tblwrap" id="fl-tbl"></div>`;
+  barChartH(document.getElementById("fl-wrong"),
+    Object.entries(wc).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, n]) => ({ label: k, value: n, sub: "筆" })));
+  const badge = r => {
+    const fs = r.final_status || "";
+    if (fs.startsWith("配交")) {
+      const lateDays = (r.delay_days ?? 1) - 1;
+      return lateDays <= 0
+        ? `<span style="color:var(--good);font-weight:600">✅ 準時 ${esc(fs.split(":")[1] || "")}</span>`
+        : `<span style="color:var(--bad);font-weight:600">🔴 晚${lateDays}天 ${esc(fs.split(":")[1] || "")}</span>`;
+    }
+    return `<span style="color:var(--s4);font-weight:600">🚚 ${esc(fs.split(":")[1] || "在途")}</span>`;
+  };
+  document.getElementById("fl-tbl").innerHTML = `<table class="tbl"><thead><tr>
+    <th></th><th>發送日</th><th>十碼貨號</th><th>應到</th><th>誤到</th><th>道口關係</th><th class="num">攔截(時)</th><th>狀態</th><th>配達日</th></tr></thead><tbody>` +
+    rows.map((r, i) => {
+      const rel = chuteRelation(r.wrong_station, r.dest_station);
+      return `<tr data-fi="${i}">
+      <td class="flExp" style="cursor:pointer;user-select:none;color:var(--accent)">▸</td>
+      <td>${md(r.send_date)}</td>${trackCell(r.tracking_no)}
+      <td>${esc(r.dest_station)}</td><td><b>${esc(r.wrong_station)}</b></td>
+      <td>${rel ? `<span class="pill" ${rel.hot ? 'style="border-color:var(--bad);color:var(--bad)"' : ""}>${rel.txt}</span>` : "—"}</td>
+      <td class="num">${r.catch_hours ?? "—"}</td><td>${badge(r)}</td><td>${esc(r.deliver_date) || "—"}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+  const tbl = document.getElementById("fl-tbl");
+  tbl.addEventListener("click", e => {
+    const exp = e.target.closest(".flExp");
+    if (!exp) { tableClick(e); return; }
+    const tr = exp.closest("tr");
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains("fl-detail")) { next.remove(); exp.textContent = "▸"; return; }
+    const r = rows[+tr.dataset.fi];
+    const dtr = document.createElement("tr");
+    dtr.className = "fl-detail";
+    dtr.innerHTML = `<td colspan="9" style="background:var(--page);padding:10px 14px">${timelineHtml(r)}</td>`;
+    tr.after(dtr);
+    exp.textContent = "▾";
+  });
+}
+function timelineHtml(r) {
+  const evs = Array.isArray(r.events) ? r.events : null;
+  if (!evs || !evs.length) return `<span class="hint">此筆尚無完整歷程（下次「追彰化流向」時會自動補上）。</span>`;
+  const items = evs.map(s => { const p = s.split("|"); return { t: p[0], act: p[1], st: p[2], to: p[3], status: p[4], note: p[5] }; }).reverse();
+  return `<div style="display:flex;flex-direction:column;gap:2px">` + items.map(ev => {
+    let mark = "•", color = "var(--muted)", extra = "";
+    if (ev.act === "到著" && ev.st === r.wrong_station) { mark = "⚠️"; color = "var(--bad)"; extra = "（誤到）"; }
+    else if ((ev.act === "盤點" || ev.act === "發送") && ev.st === r.wrong_station) { mark = "🔎"; color = "var(--good)"; extra = ev.act === "盤點" ? "（攔截）" : "（回送）"; }
+    else if (ev.act === "配達") { mark = "📦"; color = "var(--s1)"; }
+    else if (ev.act === "發送" && (ev.st === "彰化" || ev.st === "彰轉")) { mark = "🚛"; color = "var(--s5)"; extra = "（彰化發送）"; }
+    return `<div style="display:flex;gap:8px;font-size:12px;align-items:baseline">
+      <span style="font-variant-numeric:tabular-nums;color:var(--muted);min-width:88px">${esc(ev.t)}</span>
+      <span>${mark}</span>
+      <span style="color:${color};font-weight:600">${esc(ev.act)}＠${esc(ev.st)}${extra}</span>
+      <span style="color:var(--ink-2)">${esc([ev.to, ev.status, ev.note].filter(Boolean).join("　"))}</span>
+    </div>`;
+  }).join("") + `</div>`;
+}
+function renderChuteMap() {
+  const box = document.getElementById("chuteBox");
+  if (!box) return;
+  box.className = "";
+  if (!chutesCache || !chutesCache.length) { box.innerHTML = `<div class="hint">尚未匯入月台設定。</div>`; return; }
+  const rows = flowsOfDay();
+  const counts = {};   // chute_no → {n, byStation:{站:筆}}
+  for (const r of rows) {
+    for (const c of stationChutes(r.wrong_station)) {
+      const o = counts[c.chute_no] = counts[c.chute_no] || { n: 0, by: {} };
+      o.n++; o.by[r.wrong_station] = (o.by[r.wrong_station] || 0) + 1;
+    }
+  }
+  const max = Math.max(1, ...Object.values(counts).map(o => o.n));
+  const top = chutesCache.filter(c => c.side === "top").sort((a, b) => a.pos - b.pos);
+  const bot = chutesCache.filter(c => c.side === "bottom").sort((a, b) => a.pos - b.pos);
+  const CW = 34, CH = 54, GAP = 3, ML = 14;
+  const W = ML * 2 + Math.max(top.length, bot.length) * (CW + GAP);
+  const H = 196;
+  const rect = (c, y) => {
+    const x = ML + c.pos * (CW + GAP);
+    const o = counts[c.chute_no];
+    const alpha = o ? 0.18 + 0.72 * (o.n / max) : 0;
+    const fill = o ? `rgba(227,73,72,${alpha.toFixed(2)})` : "var(--surface)";
+    return `<g class="chute" data-c="${esc(c.chute_no)}" style="cursor:default">
+      <rect x="${x}" y="${y}" width="${CW}" height="${CH}" rx="5" fill="${fill}" stroke="var(--axis)" stroke-width="1"/>
+      <text x="${x + CW / 2}" y="${y + (c.side === "top" ? -6 : CH + 14)}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(c.chute_no)}</text>
+      ${o ? `<text x="${x + CW / 2}" y="${y + CH / 2 + 4}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">${o.n}</text>` : ""}
+    </g>`;
+  };
+  let g = "";
+  top.forEach(c => g += rect(c, 22));
+  bot.forEach(c => g += rect(c, 120));
+  g += `<rect x="${ML}" y="${92}" width="${W - ML * 2}" height="12" rx="3" fill="var(--grid)"/>`;
+  g += `<text x="${ML}" y="${101}" font-size="9" fill="var(--muted)">◀ 輸送帶（上排 34→5・下排 48→78）</text>`;
+  box.innerHTML = `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="${W}" style="display:block;min-width:${W}px">${g}</svg></div>
+    <div class="hint" style="margin-top:4px">${rows.length ? `顯示 ${chqDay ? md(chqDay) : "全部日期"} 誤流 ${fmtN(rows.length)} 筆的道口分布` : "此範圍無流向資料"}　｜　空白＝該道口無誤流</div>`;
+  box.querySelectorAll(".chute").forEach(el2 => {
+    el2.addEventListener("mousemove", e => {
+      const c = chutesCache.find(x => x.chute_no === el2.dataset.c && (x.side === "top" ? true : true) );
+      const cs = chutesCache.filter(x => x.chute_no === el2.dataset.c);
+      const cc = cs[0];
+      const o = counts[el2.dataset.c];
+      const stList = (cc.stations || []).map(s => s.name).join("、") || "（未設定）";
+      let html = `<div class="tt-t">道口 ${esc(el2.dataset.c)}</div><div class="row"><span>站所</span></div><div style="max-width:200px;font-size:11px;color:var(--ink-2)">${esc(stList)}</div>`;
+      if (o) html += `<div class="tt-t" style="margin-top:6px">誤流 ${o.n} 筆</div>` + Object.entries(o.by).map(([s, n]) => `<div class="row"><span>${esc(s)}</span><b>${n}</b></div>`).join("");
+      showTip(html, e.clientX, e.clientY);
+    });
+    el2.addEventListener("mouseleave", hideTip);
+  });
 }
 async function queryChq() {
   const tbl = document.getElementById("cqTbl");
   tbl.innerHTML = `<div class="loading">查詢中…</div>`;
   try {
     const j = await api("details", {
-      date_from: document.getElementById("cqF").value || null,
-      date_to: document.getElementById("cqT").value || null,
+      date_from: chqDay || null,
+      date_to: chqDay || null,
       resp_station: "彰化",
       note_station: document.getElementById("cqN").value.trim() || null,
       limit: chqState.limit, offset: chqState.offset,
