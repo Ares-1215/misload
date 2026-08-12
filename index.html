@@ -84,6 +84,19 @@ tr.rowpend td:first-child { box-shadow: inset 3px 0 0 var(--s4); }
 .cqprog { display:inline-flex; align-items:center; gap:8px; }
 .cqprog .bar { width: 130px; height: 8px; border-radius: 5px; background: var(--grid); overflow: hidden; display:inline-block; }
 .cqprog .bar > i { display:block; height: 100%; background: var(--good); }
+/* 可收合面板 */
+h3.collh { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 7px; }
+h3.collh .car { transition: transform .15s; color: var(--muted); font-size: 11px; display: inline-block; }
+h3.collh.closed .car { transform: rotate(-90deg); }
+h3.collh:hover { color: var(--accent); }
+/* 樞紐分析 */
+.pvrow { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.pvrow .lbl { width: 64px; text-align: right; font-size: 12px; font-weight: 700; }
+.pvrow .track { flex: 1; height: 18px; display: flex; gap: 2px; border-radius: 4px; overflow: hidden; }
+.pvrow .seg { height: 100%; min-width: 3px; cursor: default; }
+.pvrow .tot { width: 56px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+table.pvmx td.cell { cursor: pointer; }
+table.pvmx td.cell:hover { background: rgba(42,120,214,.12); }
 .tblwrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 .hl { font-weight:700; color:var(--accent); }
 .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:11px; border:1px solid var(--border); color:var(--ink-2); }
@@ -664,14 +677,25 @@ function renderChQuery() {
       <div class="pager" id="cqPager"></div>
     </div>
     <div class="panel">
-      <h3>🛰️ 貨件流向分析</h3>
-      <div class="hint">每筆貨的完整旅程：誤到哪、多久被攔到、最後何時配達。點列首「▸」展開完整作業歷程時間軸。要更新請跟 Claude 說「追彰化流向」。</div>
-      <div id="flowBox" class="loading">載入中…</div>
+      <h3 class="collh" data-coll="pivot"><span class="car">▾</span>📊 回覆樞紐分析</h3>
+      <div data-body="pivot">
+        <div class="hint">各單位回傳的原因／改善方式，依關鍵字即時自動分類統計（填寫或匯入後立即更新）。</div>
+        <div id="pivotBox" class="loading">載入中…</div>
+      </div>
     </div>
     <div class="panel">
-      <h3>🗺️ 彰化分貨道口誤流熱點圖</h3>
-      <div class="hint">依「彰化所流道設定」繪製上下兩排道口；紅色深淺＝誤流件數（貨被錯裝進該站籠位）。滑鼠移到道口可看站所與明細。</div>
-      <div id="chuteBox" class="loading">載入中…</div>
+      <h3 class="collh" data-coll="flow"><span class="car">▾</span>🛰️ 貨件流向分析</h3>
+      <div data-body="flow">
+        <div class="hint">每筆貨的完整旅程：誤到哪、多久被攔到、最後何時配達。點列首「▸」展開完整作業歷程時間軸。要更新請跟 Claude 說「追彰化流向」。</div>
+        <div id="flowBox" class="loading">載入中…</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3 class="collh" data-coll="chute"><span class="car">▾</span>🗺️ 彰化分貨道口誤流熱點圖（發轉場域）</h3>
+      <div data-body="chute">
+        <div class="hint">依「彰化所流道設定」繪製上下兩排道口；紅色深淺＝誤流件數。僅統計發轉（彰化／彰轉）貨件——冷鏈、籠車在不同場域作業，之後補上各單位場域圖。</div>
+        <div id="chuteBox" class="loading">載入中…</div>
+      </div>
     </div>`;
   document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
   document.getElementById("cqTbl").addEventListener("click", tableClick);
@@ -683,11 +707,27 @@ function renderChQuery() {
     chqDay = b.dataset.d;
     document.querySelectorAll("#cqDays button").forEach(x => x.classList.toggle("on", x === b));
     chqState.offset = 0;
-    queryChq(); renderFlowPanel(); renderChuteMap();
+    queryChq(); renderFlowPanel(); renderChuteMap(); loadPivot();
+  });
+  // 可收合面板：預設收合（樞紐預設展開），記住上次狀態
+  const COLL_DEF = { pivot: "0", flow: "1", chute: "1" };
+  el.querySelectorAll("h3.collh").forEach(h => {
+    const k = h.dataset.coll;
+    const body = el.querySelector(`[data-body="${k}"]`);
+    const closed = (localStorage.getItem("ml_coll_" + k) ?? COLL_DEF[k]) === "1";
+    h.classList.toggle("closed", closed);
+    body.style.display = closed ? "none" : "";
+    h.addEventListener("click", () => {
+      const c = !h.classList.contains("closed");
+      h.classList.toggle("closed", c);
+      body.style.display = c ? "none" : "";
+      localStorage.setItem("ml_coll_" + k, c ? "1" : "0");
+    });
   });
   buildDayChips();
   queryChq();
   loadFlowData();
+  loadPivot();
 }
 async function buildDayChips() {
   try {
@@ -740,6 +780,12 @@ function flowsOfDay() {
   if (!flowsCache) return [];
   return chqDay ? flowsCache.filter(r => r.send_date === chqDay) : flowsCache;
 }
+// 作業場域：發轉(彰化/彰轉)才適用道口分析；冷鏈/籠車在不同場域作業
+function fieldOf(r) {
+  if (CAGE_UNITS.includes(r.resp_station)) return { txt: "籠車場域", cv: "--s2" };
+  if (r.resp_station === "彰化低溫") return { txt: "冷鏈場域", cv: "--s7" };
+  return null;
+}
 function renderFlowPanel() {
   const box = document.getElementById("flowBox");
   if (!box || !flowsCache) return;
@@ -757,7 +803,7 @@ function renderFlowPanel() {
   const wc = {};
   rows.forEach(r => { const k = r.wrong_station || "?"; wc[k] = (wc[k] || 0) + 1; });
   const pairs = {};
-  rows.forEach(r => { const k = `${r.wrong_station || "?"}→${r.dest_station || "?"}`; pairs[k] = (pairs[k] || 0) + 1; });
+  rows.filter(r => !fieldOf(r)).forEach(r => { const k = `${r.wrong_station || "?"}→${r.dest_station || "?"}`; pairs[k] = (pairs[k] || 0) + 1; });
   const ptop = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 8);
   box.innerHTML = `
     <div class="hint">範圍：${chqDay ? "發送日 " + chqDay : "全部日期"}　共 ${fmtN(rows.length)} 筆　（更新於 ${new Date(crawled).toLocaleString("zh-Hant", { hour12: false })}）</div>
@@ -769,7 +815,7 @@ function renderFlowPanel() {
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:6px">
       <div><h3 style="font-size:13px;margin-bottom:6px">誤流站 Top 10</h3><div id="fl-wrong"></div></div>
-      <div><h3 style="font-size:13px;margin-bottom:6px">誤到→應到 配對（含道口關係）</h3>
+      <div><h3 style="font-size:13px;margin-bottom:6px">誤到→應到 配對（發轉場域・含道口關係）</h3>
         <table class="tbl">${ptop.map(([k, n]) => {
           const [w, d] = k.split("→");
           const rel = chuteRelation(w, d);
@@ -796,12 +842,16 @@ function renderFlowPanel() {
   document.getElementById("fl-tbl").innerHTML = `<table class="tbl"><thead><tr>
     <th></th><th>發送日</th><th>十碼貨號</th><th>應到</th><th>誤到</th><th>道口關係</th><th class="num">攔截(時)</th><th>狀態</th><th>配達日</th></tr></thead><tbody>` +
     rows.map((r, i) => {
-      const rel = chuteRelation(r.wrong_station, r.dest_station);
+      const field = fieldOf(r);
+      const rel = field ? null : chuteRelation(r.wrong_station, r.dest_station);
+      const relCell = field
+        ? `<span class="pill" style="border-color:var(${field.cv});color:var(${field.cv})">${field.txt}</span>`
+        : (rel ? `<span class="pill" ${rel.hot ? 'style="border-color:var(--bad);color:var(--bad)"' : ""}>${rel.txt}</span>` : "—");
       return `<tr data-fi="${i}">
       <td class="flExp" style="cursor:pointer;user-select:none;color:var(--accent)">▸</td>
       <td>${md(r.send_date)}</td>${trackCell(r.tracking_no)}
       <td>${esc(r.dest_station)}</td><td><b>${esc(r.wrong_station)}</b></td>
-      <td>${rel ? `<span class="pill" ${rel.hot ? 'style="border-color:var(--bad);color:var(--bad)"' : ""}>${rel.txt}</span>` : "—"}</td>
+      <td>${relCell}</td>
       <td class="num">${r.catch_hours ?? "—"}</td><td>${badge(r)}</td><td>${esc(r.deliver_date) || "—"}</td></tr>`;
     }).join("") + `</tbody></table>`;
   const tbl = document.getElementById("fl-tbl");
@@ -842,7 +892,7 @@ function renderChuteMap() {
   if (!box) return;
   box.className = "";
   if (!chutesCache || !chutesCache.length) { box.innerHTML = `<div class="hint">尚未匯入月台設定。</div>`; return; }
-  const rows = flowsOfDay();
+  const rows = flowsOfDay().filter(r => !fieldOf(r));  // 熱點圖僅發轉場域
   const counts = {};   // chute_no → {n, byStation:{站:筆}}
   for (const r of rows) {
     for (const c of stationChutes(r.wrong_station)) {
@@ -1102,6 +1152,11 @@ function ensureFillModal() {
       r.resp_unit = j.unit; r.reply = j.reply; r.improve = j.improve;
       refreshFillCells(fmCur.id);
       loadUnitStats();
+      if (pivotRows) {
+        const pr = pivotRows.find(x => x.id === Number(fmCur.id));
+        if (pr) { pr.resp_unit = j.unit; pr.reply = j.reply; pr.improve = j.improve; }
+        renderPivot();
+      }
       d.style.display = "none";
     } catch (err) {
       d.querySelector("#fmMsg").textContent = "儲存失敗：" + err.message;
@@ -1141,6 +1196,94 @@ function refreshFillCells(id) {
     c.outerHTML = replyCellHtml(r);
     tr.classList.toggle("replied", hasFill(r));
   });
+}
+// ---------- 回覆樞紐分析（關鍵字自動分類） ----------
+const REASON_RULES = [
+  { k: "非本所責任", re: /無誤|非本所|前站|來貨誤/, cv: "--s3" },
+  { k: "相鄰滑道", re: /相鄰|隔壁|滑道/, cv: "--s4" },
+  { k: "上錯櫃/轉運", re: /誤上|上錯|裝錯/, cv: "--s1" },
+  { k: "誤掃誤訂", re: /誤掃|掃錯|誤訂|條碼/, cv: "--s2" },
+  { k: "漏掃", re: /漏刷|漏掃/, cv: "--s7" },
+  { k: "標籤/外裝", re: /標籤|破損|外箱/, cv: "--s8" },
+];
+const CAT_OTHER = { k: "其他", cv: "--s5" };
+const CAT_EMPTY = { k: "未填原因", cv: "--muted" };
+const CAT_LIST = [...REASON_RULES.map(r => ({ k: r.k, cv: r.cv })), CAT_OTHER, CAT_EMPTY];
+const catColor = k => (CAT_LIST.find(c => c.k === k) || CAT_OTHER).cv;
+function classifyReason(t) {
+  const s = (t || "").trim();
+  if (!s) return CAT_EMPTY.k;
+  for (const r of REASON_RULES) if (r.re.test(s)) return r.k;
+  return CAT_OTHER.k;
+}
+let pivotRows = null, pivotKey = null;
+async function loadPivot(force) {
+  const box = document.getElementById("pivotBox");
+  if (!box) return;
+  const key = chqDay || "all";
+  if (!force && pivotKey === key && pivotRows) { renderPivot(); return; }
+  try {
+    const params = { resp_station: "彰化(含籠車)" };
+    if (chqDay) { params.date_from = chqDay; params.date_to = chqDay; }
+    const { rows } = await fetchAllDetails(params, (n, t) => { box.textContent = `載入回覆資料… ${n}/${t}`; });
+    pivotRows = rows; pivotKey = key;
+    renderPivot();
+  } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
+}
+function renderPivot() {
+  const box = document.getElementById("pivotBox");
+  if (!box || !pivotRows) return;
+  box.className = "";
+  const filled = pivotRows.filter(hasFill);
+  if (!filled.length) { box.innerHTML = `<div class="hint">此範圍尚無已回覆的資料——各單位填寫或匯入回傳檔後，這裡會即時出現分類統計。</div>`; return; }
+  const items = filled.map(r => ({ ...r, _u: r.resp_unit || "未填單位", _c: classifyReason(r.reply) }));
+  const units = [...UNIT_OPTS.filter(u => items.some(i => i._u === u)), ...(items.some(i => i._u === "未填單位") ? ["未填單位"] : [])];
+  const cats = CAT_LIST.map(c => c.k).filter(k => items.some(i => i._c === k));
+  const cnt = {};
+  items.forEach(i => { cnt[i._u + "|" + i._c] = (cnt[i._u + "|" + i._c] || 0) + 1; });
+  const maxU = Math.max(...units.map(u => items.filter(i => i._u === u).length));
+  let stack = `<div class="legend">` + cats.map(k => `<span class="it"><span class="sw" style="background:var(${catColor(k)})"></span>${esc(k)}</span>`).join("") + `</div>`;
+  stack += units.map(u => {
+    const tot = items.filter(i => i._u === u).length;
+    const segs = cats.map(k => {
+      const n = cnt[u + "|" + k] || 0;
+      return n ? `<span class="seg" style="background:var(${catColor(k)});flex:${n} ${n} 0" title="${esc(u)}・${esc(k)}：${n} 筆"></span>` : "";
+    }).join("");
+    return `<div class="pvrow"><span class="lbl">${esc(u)}</span><div style="flex:1"><span class="track" style="width:${Math.max(8, tot / maxU * 100).toFixed(0)}%;display:flex">${segs}</span></div><span class="tot">${tot} 筆</span></div>`;
+  }).join("");
+  let mx = `<table class="tbl pvmx"><thead><tr><th>原因分類＼單位</th>${units.map(u => `<th class="num">${esc(u)}</th>`).join("")}<th class="num">合計</th></tr></thead><tbody>`;
+  cats.forEach(k => {
+    mx += `<tr><td><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(${catColor(k)});margin-right:6px"></span>${esc(k)}</td>` +
+      units.map(u => { const n = cnt[u + "|" + k] || 0; return `<td class="num cell" data-u="${esc(u)}" data-c="${esc(k)}">${n || "·"}</td>`; }).join("") +
+      `<td class="num"><b>${items.filter(i => i._c === k).length}</b></td></tr>`;
+  });
+  mx += `<tr><td><b>合計</b></td>${units.map(u => `<td class="num"><b>${items.filter(i => i._u === u).length}</b></td>`).join("")}<td class="num"><b>${items.length}</b></td></tr></tbody></table>`;
+  const days = [...new Set(items.map(i => i.send_date))].sort();
+  box.innerHTML = `
+    <div class="hint">已回覆 ${fmtN(items.length)} 筆（${chqDay ? "發送日 " + md(chqDay) : "全部日期"}）・關鍵字自動分類</div>
+    <div style="margin:8px 0 14px">${stack}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
+      <div><h3 style="font-size:13px;margin-bottom:6px">分類 × 單位 樞紐矩陣（點數字看明細）</h3><div class="tblwrap">${mx}</div><div id="pv-drill" style="margin-top:8px"></div></div>
+      <div><h3 style="font-size:13px;margin-bottom:6px">每日趨勢（依原因分類）</h3><div class="chart" id="pv-trend">${days.length > 1 ? "" : '<div class="hint">切到「全部」或資料跨多日時顯示趨勢</div>'}</div></div>
+    </div>`;
+  if (days.length > 1) {
+    lineChart(document.getElementById("pv-trend"), days,
+      cats.map(k => ({ name: k, colorVar: catColor(k), data: new Map(days.map(d => [d, items.filter(i => i.send_date === d && i._c === k).length])) })),
+      { h: 240, fmt: fmtN });
+  }
+  box.querySelectorAll(".pvmx .cell").forEach(c => c.addEventListener("click", () => {
+    const u = c.dataset.u, k = c.dataset.c;
+    const list = items.filter(i => i._u === u && i._c === k);
+    const dr = document.getElementById("pv-drill");
+    if (!list.length) { dr.innerHTML = ""; return; }
+    dr.innerHTML = `<div class="hint"><b>${esc(u)}・${esc(k)}</b> 共 ${list.length} 筆（點貨號查件）：</div>
+      <div style="max-height:180px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 10px;font-size:12px">` +
+      list.map(i => `<div style="display:flex;gap:8px;padding:2px 0;align-items:baseline">
+        <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
+        <a class="trackLink" data-no="${esc(i.tracking_no)}" style="cursor:pointer;color:var(--accent);flex-shrink:0">${esc(i.tracking_no)}</a>
+        <span style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.reply || "（未填原因）")}</span></div>`).join("") + `</div>`;
+    dr.onclick = tableClick;
+  }));
 }
 // ---------- 產生單位填寫檔 / 匯入回傳檔 ----------
 const FILL_HEADS = ["責任站", "作業日", "作業時間", "十碼貨號", "發送日期", "發送站", "發送件數", "到著站", "註區站", "註區件數", "註區碼", "註區日", "責任單位", "誤裝誤訂原因", "改善方式"];
@@ -1218,6 +1361,7 @@ async function importFillFile(file) {
     msg.innerHTML = `<span class="msg-ok">✅ 匯入完成：${fmtN(items.length)} 筆填寫、對到 ${fmtN(matched)} 筆明細${missed ? `、<span class="msg-err">${missed} 筆對不到（貨號/日期不符）</span>` : ""}。</span>`;
     chqState.offset = 0;
     queryChq();
+    loadPivot(true);
   } catch (e) {
     msg.innerHTML = `<span class="msg-err">匯入失敗：${esc(e.message)}</span>`;
   }
