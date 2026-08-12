@@ -600,19 +600,28 @@ function stationRateTable(el, dates) {
 }
 
 // ---------- 明細查詢 ----------
+let respStations = []; // 明細中實際出現過的責任站（含彰化(彰轉)等歸戶標示），依筆數排序
+async function loadRespStations() {
+  if (respStations.length) return;
+  try {
+    const j = await api("agg", { date_from: "1900-01-01", date_to: "2100-12-31", group_by: "resp_station" });
+    respStations = (j.rows || []).map(r => r.k).filter(k => k && k !== "(空白)");
+    const dl = document.getElementById("stList");
+    if (dl) dl.innerHTML = respStations.map(s => `<option>${esc(s)}</option>`).join("");
+  } catch {}
+}
 function renderDetail() {
   const el = document.getElementById("tab-detail");
   const union = [...new Set([...allDates, ...detailDates.map(x => x.d)])].sort();
   const L = union[union.length - 1] || "";
   const F = union[Math.max(0, union.length - 5)] || "";
-  const allStations = [...new Set(allStats.filter(s => s.scope === "station" || s.scope === "special").map(s => s.station_name))].sort();
   el.innerHTML = `
     <div class="panel">
       <div class="controls">
         <label>發送日（起）<input type="date" id="dF" value="${F}"></label>
         <label>發送日（迄）<input type="date" id="dT" value="${L}"></label>
         <label>區<select id="dR"><option value="">全部</option>${REGIONS.map(r => `<option>${r}</option>`).join("")}</select></label>
-        <label>責任站<input id="dS" list="stList" style="width:100px" placeholder="全部"><datalist id="stList">${allStations.map(s => `<option>${esc(s)}</option>`).join("")}</datalist></label>
+        <label>責任站<input id="dS" list="stList" style="width:110px" placeholder="全部"><datalist id="stList">${respStations.map(s => `<option>${esc(s)}</option>`).join("")}</datalist></label>
         <label>商品別<select id="dP"><option value="">全部</option><option>一般</option><option>宅配</option><option>冷凍</option><option>冷藏</option><option>蔬果</option><option>來回件</option><option>醫藥ＧＤＰ</option><option>糕餅</option><option>當日配</option></select></label>
         <label>關鍵字<input id="dQ" style="width:150px" placeholder="貨號／寄貨人／地址／人員"></label>
         <button class="btn" id="dGo">查詢</button>
@@ -636,6 +645,7 @@ function renderDetail() {
   document.getElementById("dGo").addEventListener("click", () => { detailState.offset = 0; queryDetails(); });
   document.getElementById("dQ").addEventListener("keydown", e => { if (e.key === "Enter") { detailState.offset = 0; queryDetails(); } });
   document.getElementById("dTbl").addEventListener("click", onReplyClick);
+  loadRespStations();
   queryDetails();
 }
 async function queryDetails() {
