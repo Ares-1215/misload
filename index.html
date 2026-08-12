@@ -1135,8 +1135,8 @@ async function exportUnitFile() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "本所");
     const mmdd = day.slice(5).replace("-", "");
-    XLSX.writeFile(wb, `本所誤裝誤訂貨件_${mmdd}.xlsx`);
-    msg.innerHTML = `<span class="msg-ok">✅ 已產生 本所誤裝誤訂貨件_${mmdd}.xlsx（${fmtN(rows.length)} 筆），請發給各單位填寫。</span>`;
+    XLSX.writeFile(wb, `彰化轉運中心誤裝誤訂貨件_${mmdd}.xlsx`);
+    msg.innerHTML = `<span class="msg-ok">✅ 已產生 彰化轉運中心誤裝誤訂貨件_${mmdd}.xlsx（${fmtN(rows.length)} 筆），請發給各單位填寫。</span>`;
   } catch (e) {
     msg.innerHTML = `<span class="msg-err">產生失敗：${esc(e.message)}</span>`;
   }
