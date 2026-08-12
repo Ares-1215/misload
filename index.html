@@ -652,6 +652,8 @@ function tableClick(e) {
 }
 let chqState = { offset: 0, limit: 50, total: 0 };
 let chqDay = "";                 // '' = 全部
+let chqUnit = "";                // '' = 全部單位；'(未填)'；或單位名（點統計標籤篩選）
+let chqSortUnit = false;         // 點「責任單位」表頭 → 依單位排序（發轉→到轉→冷鏈→籠車→其他→未填）
 let flowsCache = null, chutesCache = null, chqDates = null;
 function renderChQuery() {
   const el = document.getElementById("tab-chquery");
@@ -938,6 +940,11 @@ function renderChuteMap() {
     el2.addEventListener("mouseleave", hideTip);
   });
 }
+const unitOrder = u => {
+  if (!u) return 99;
+  const i = UNIT_OPTS.indexOf(u);
+  return i >= 0 ? i : 50;
+};
 async function queryChq() {
   const tbl = document.getElementById("cqTbl");
   if (tbl.offsetHeight > 40) { tbl.style.minHeight = tbl.offsetHeight + "px"; tbl.style.opacity = ".45"; }
@@ -948,8 +955,15 @@ async function queryChq() {
       date_to: chqDay || null,
       resp_station: "彰化(含籠車)",
       note_station: document.getElementById("cqN").value.trim() || null,
-      limit: chqState.limit, offset: chqState.offset,
+      resp_unit: chqUnit || null,
+      limit: chqSortUnit ? 500 : chqState.limit,
+      offset: chqSortUnit ? 0 : chqState.offset,
     });
+    if (chqSortUnit && j.rows) {
+      j.rows.sort((a, b) => unitOrder(a.resp_unit) - unitOrder(b.resp_unit)
+        || (a.resp_unit || "").localeCompare(b.resp_unit || "")
+        || a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0));
+    }
     chqState.total = j.total || 0;
     document.getElementById("cqInfo").innerHTML = `共 ${fmtN(chqState.total)} 筆（彰化＋彰轉＋低溫＋籠車）　<span id="cqUnits"></span>`;
     loadUnitStats();
@@ -957,7 +971,7 @@ async function queryChq() {
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.className = "tblwrap cqwrap";
     tbl.innerHTML = `<table class="tbl cqt"><thead><tr>
-      <th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th><th>到著站</th><th>註區站</th><th class="num">註區件數</th><th>註區碼</th><th>註區日</th><th>責任單位</th><th>誤裝誤訂原因</th><th>改善方式</th>
+      <th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th><th>到著站</th><th>註區站</th><th class="num">註區件數</th><th>註區碼</th><th>註區日</th><th id="cqUnitTh" style="cursor:pointer;color:var(--accent)" title="點擊切換：依單位排序（發轉→到轉→冷鏈→籠車）／預設順序">責任單位 ${chqSortUnit ? "▼" : "⇅"}</th><th>誤裝誤訂原因</th><th>改善方式</th>
       </tr></thead><tbody>` +
       j.rows.map(r => `<tr data-rid="${r.id}" class="${hasFill(r) ? "rowdone" : "rowpend"}">
         <td><b>${esc(chName(r.resp_station))}</b></td>
@@ -971,6 +985,11 @@ async function queryChq() {
         ${fill3Html(r)}</tr>`).join("") + `</tbody></table>`;
     tbl.style.minHeight = ""; tbl.style.opacity = "";
     tbl.scrollTop = 0;
+    document.getElementById("cqUnitTh")?.addEventListener("click", () => {
+      chqSortUnit = !chqSortUnit;
+      chqState.offset = 0;
+      queryChq();
+    });
     renderChqPager();
   } catch (e) {
     tbl.style.minHeight = ""; tbl.style.opacity = "";
@@ -979,6 +998,10 @@ async function queryChq() {
 }
 function renderChqPager() {
   const pg = document.getElementById("cqPager");
+  if (chqSortUnit) {
+    pg.innerHTML = `<span class="hint">依單位排序中（發轉→到轉→冷鏈→籠車→未填），一次顯示全部 ${fmtN(Math.min(chqState.total, 500))} 筆。點「責任單位」表頭可還原預設順序。</span>`;
+    return;
+  }
   const { offset, limit, total } = chqState;
   const page = Math.floor(offset / limit) + 1, pages = Math.max(1, Math.ceil(total / limit));
   pg.innerHTML = `
@@ -1199,12 +1222,17 @@ function refreshFillCells(id) {
 }
 // ---------- 回覆樞紐分析（關鍵字自動分類） ----------
 const REASON_RULES = [
+  // 順序即優先權：由實際回覆歸納，逐條可調
   { k: "非本所責任", re: /無誤|非本所|前站|來貨誤/, cv: "--s3" },
+  { k: "堆疊/籠板錯誤", re: /堆疊|疊籠|籠板|疊板|疊貨/, cv: "--s2" },
   { k: "相鄰滑道", re: /相鄰|隔壁|滑道/, cv: "--s4" },
-  { k: "上錯櫃/轉運", re: /誤上|上錯|裝錯/, cv: "--s1" },
-  { k: "誤掃誤訂", re: /誤掃|掃錯|誤訂|條碼/, cv: "--s2" },
-  { k: "漏掃", re: /漏刷|漏掃/, cv: "--s7" },
-  { k: "標籤/外裝", re: /標籤|破損|外箱/, cv: "--s8" },
+  { k: "簡碼/標示錯誤", re: /誤寫|寫錯|簡碼錯|標示錯|誤植/, cv: "--s7" },
+  { k: "誤掃誤訂", re: /誤掃|掃錯|誤訂|條碼/, cv: "--s8" },
+  { k: "上錯櫃/轉運", re: /誤上|上錯|裝錯|誤裝/, cv: "--s1" },
+  { k: "同站所/非誤裝", re: /同站所|同站/, cv: "--s6" },
+  { k: "追加/變更", re: /追加|變更|改站|改配/, cv: "--s5" },
+  { k: "漏掃", re: /漏刷|漏掃/, cv: "--good" },
+  { k: "標籤/外裝", re: /標籤|破損|外箱/, cv: "--bad" },
 ];
 const CAT_OTHER = { k: "其他", cv: "--s5" };
 const CAT_EMPTY = { k: "未填原因", cv: "--muted" };
@@ -1237,7 +1265,12 @@ function renderPivot() {
   const filled = pivotRows.filter(hasFill);
   if (!filled.length) { box.innerHTML = `<div class="hint">此範圍尚無已回覆的資料——各單位填寫或匯入回傳檔後，這裡會即時出現分類統計。</div>`; return; }
   const items = filled.map(r => ({ ...r, _u: r.resp_unit || "未填單位", _c: classifyReason(r.reply) }));
-  const units = [...UNIT_OPTS.filter(u => items.some(i => i._u === u)), ...(items.some(i => i._u === "未填單位") ? ["未填單位"] : [])];
+  const seenU = [...new Set(items.map(i => i._u))];
+  const units = [
+    ...UNIT_OPTS.filter(u => seenU.includes(u)),
+    ...seenU.filter(u => !UNIT_OPTS.includes(u) && u !== "未填單位").sort(),
+    ...(seenU.includes("未填單位") ? ["未填單位"] : []),
+  ];
   const cats = CAT_LIST.map(c => c.k).filter(k => items.some(i => i._c === k));
   const cnt = {};
   items.forEach(i => { cnt[i._u + "|" + i._c] = (cnt[i._u + "|" + i._c] || 0) + 1; });
@@ -1381,12 +1414,23 @@ async function loadUnitStats() {
     const pend = m["(空白)"] || 0;
     const done = total - pend;
     const pct = Math.round(done / total * 100);
-    const chips = UNIT_OPTS.filter(u => m[u]).map(u => {
-      const cv = UNIT_COLOR[u] || "--good";
-      return `<span class="upill" style="border-color:var(${cv});color:var(${cv})">${u} ${m[u]}</span>`;
-    }).join(" ");
-    el.innerHTML = `｜ ${chips}${pend ? ` <span class="upill" style="border-color:var(--s4);color:var(--s4)">待回覆 ${pend}</span>` : ""}
-      　<span class="cqprog"><span class="bar"><i style="width:${pct}%"></i></span><b style="color:var(--${pct === 100 ? "good" : "ink"})">${pct}%</b> 已回覆</span>`;
+    const unitsPresent = [
+      ...UNIT_OPTS.filter(u => m[u]),
+      ...Object.keys(m).filter(u => u !== "(空白)" && !UNIT_OPTS.includes(u)).sort(),
+    ];
+    const chip = (label, n, cv, key) => {
+      const on = chqUnit === key;
+      return `<span class="upill uchip" data-un="${esc(key)}" style="cursor:pointer;border-color:var(${cv});color:${on ? "#fff" : `var(${cv})`};background:${on ? `var(${cv})` : "transparent"}" title="點擊篩選此單位">${esc(label)} ${n}</span>`;
+    };
+    el.innerHTML = `｜ ` + unitsPresent.map(u => chip(u, m[u], UNIT_COLOR[u] || "--good", u)).join(" ") +
+      (pend ? ` ${chip("待回覆", pend, "--s4", "(未填)")}` : "") +
+      `　<span class="cqprog"><span class="bar"><i style="width:${pct}%"></i></span><b style="color:var(--${pct === 100 ? "good" : "ink"})">${pct}%</b> 已回覆</span>` +
+      (chqUnit ? ` <span class="hint">（篩選中：${esc(chqUnit === "(未填)" ? "待回覆" : chqUnit)}，再點一次取消）</span>` : "");
+    el.querySelectorAll(".uchip").forEach(c => c.addEventListener("click", () => {
+      chqUnit = chqUnit === c.dataset.un ? "" : c.dataset.un;
+      chqState.offset = 0;
+      queryChq();
+    }));
   } catch {}
 }
 
