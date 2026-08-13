@@ -782,19 +782,20 @@ function renderChQuery() {
     chqState.offset = 0;
     queryChq(); renderFlowPanel(); renderChuteMap(); loadPivot();
   });
-  // 可收合面板：預設收合（樞紐預設展開），記住上次狀態
+  // 可收合面板：流向分析/熱點圖每次載入一律收合（點標題展開）；樞紐分析記住上次狀態
   const COLL_DEF = { pivot: "0", flow: "1", chute: "1" };
+  const ALWAYS_CLOSED = ["flow", "chute"];
   el.querySelectorAll("h3.collh").forEach(h => {
     const k = h.dataset.coll;
     const body = el.querySelector(`[data-body="${k}"]`);
-    const closed = (localStorage.getItem("ml_coll_" + k) ?? COLL_DEF[k]) === "1";
+    const closed = ALWAYS_CLOSED.includes(k) ? true : (localStorage.getItem("ml_coll_" + k) ?? COLL_DEF[k]) === "1";
     h.classList.toggle("closed", closed);
     body.style.display = closed ? "none" : "";
     h.addEventListener("click", () => {
       const c = !h.classList.contains("closed");
       h.classList.toggle("closed", c);
       body.style.display = c ? "none" : "";
-      localStorage.setItem("ml_coll_" + k, c ? "1" : "0");
+      if (!ALWAYS_CLOSED.includes(k)) localStorage.setItem("ml_coll_" + k, c ? "1" : "0");
     });
   });
   if (!isAdmin) document.getElementById("impBtn").style.display = "none";
