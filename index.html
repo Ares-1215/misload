@@ -181,15 +181,14 @@ svg text { font-family: inherit; }
       <button id="gaBtn" style="flex:1" type="button">🔑 管理員</button>
     </div>
     <div id="gViewer">
-      <p>輸入通行碼即可查看（僅供瀏覽，無法修改）</p>
-      <input id="passInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="通行碼">
+      <p>免密碼直接進入（僅供瀏覽，無法修改）</p>
     </div>
     <div id="gAdmin" style="display:none">
       <p>管理員可上傳、填寫回覆、匯入與修改</p>
       <input id="admAcct" type="text" inputmode="numeric" autocomplete="off" placeholder="帳號" style="letter-spacing:2px;font-size:16px;margin-bottom:8px">
       <input id="admPwd" type="password" autocomplete="off" placeholder="密碼" style="letter-spacing:2px;font-size:16px">
     </div>
-    <button class="btn" style="width:100%;margin-top:4px" onclick="tryLogin()">進入</button>
+    <button class="btn" id="gateGo" style="width:100%;margin-top:4px" onclick="tryLogin()">👀 直接進入</button>
     <div id="gateMsg" class="msg-err" style="margin-top:10px; font-size:13px;"></div>
   </div>
 </div>
@@ -280,7 +279,8 @@ function setGateMode(m) {
   document.getElementById("gaBtn").classList.toggle("on", m === "admin");
   document.getElementById("gViewer").style.display = m === "viewer" ? "" : "none";
   document.getElementById("gAdmin").style.display = m === "admin" ? "" : "none";
-  (m === "viewer" ? document.getElementById("passInput") : document.getElementById("admAcct")).focus();
+  document.getElementById("gateGo").textContent = m === "viewer" ? "👀 直接進入" : "登入";
+  if (m === "admin") document.getElementById("admAcct").focus();
 }
 document.getElementById("gvBtn").addEventListener("click", () => setGateMode("viewer"));
 document.getElementById("gaBtn").addEventListener("click", () => setGateMode("admin"));
@@ -306,8 +306,7 @@ async function tryLogin() {
     if (!a || !p) return;
     v = a + ":" + p;
   } else {
-    v = document.getElementById("passInput").value.trim();
-    if (!v) return;
+    v = "viewer";
   }
   pass = v;
   document.getElementById("gateMsg").textContent = "驗證中…";
@@ -322,7 +321,6 @@ async function tryLogin() {
     document.getElementById("gateMsg").textContent = /錯誤/.test(e.message) ? e.message : ("連線失敗：" + e.message);
   }
 }
-document.getElementById("passInput").addEventListener("keydown", e => { if (e.key === "Enter") tryLogin(); });
 document.getElementById("admPwd").addEventListener("keydown", e => { if (e.key === "Enter") tryLogin(); });
 
 // ---------- 資料載入與整理 ----------
@@ -1929,7 +1927,6 @@ applyTheme(localStorage.getItem("ml_theme") || (matchMedia("(prefers-color-schem
       return;
     } catch { localStorage.removeItem("ml_pass"); pass = ""; }
   }
-  document.getElementById("passInput").focus();
 })();
 </script>
 </body>
