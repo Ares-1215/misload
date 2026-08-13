@@ -121,6 +121,27 @@ table.pvmx td.cell:hover { background: rgba(42,120,214,.12); }
 #gate input { width:100%; text-align:center; font-size:22px; letter-spacing:8px; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--page); color:var(--ink); margin-bottom:12px; }
 .loading { color:var(--muted); text-align:center; padding:30px 0; }
 svg text { font-family: inherit; }
+/* 列印報表（A4 橫式） */
+#printArea { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 9mm; }
+  body.printing .wrap, body.printing .tooltip, body.printing #fillModal { display: none !important; }
+  body.printing { background: #fff !important; }
+  body.printing #printArea { display: block !important; color: #000; }
+  #printArea * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #printArea h1 { font-size: 16pt; margin: 0 0 2px; }
+  #printArea .pmeta { font-size: 10pt; color: #333; margin-bottom: 8px; }
+  #printArea .psec { font-size: 12pt; font-weight: 700; margin: 12px 0 4px; page-break-after: avoid; }
+  #printArea table { width: 100%; border-collapse: collapse; font-size: 7.6pt; }
+  #printArea th, #printArea td { border: 1px solid #888; padding: 2.5px 4px; text-align: center; }
+  #printArea th { background: #dde7f5 !important; font-weight: 700; }
+  #printArea tr { page-break-inside: avoid; }
+  #printArea td.wrapc { text-align: left; max-width: 200px; white-space: normal; word-break: break-all; }
+  #printArea .pbar { display: flex; height: 12px; border: 1px solid #999; border-radius: 3px; overflow: hidden; }
+  #printArea .pbar span { height: 100%; }
+  #printArea .plegend { font-size: 8pt; margin: 3px 0 6px; }
+  #printArea .plegend i { display: inline-block; width: 8px; height: 8px; margin: 0 3px 0 8px; }
+}
 @media (max-width: 640px) {
   .wrap { padding: 10px 12px; }
   header.top { gap:8px; }
@@ -178,23 +199,24 @@ svg text { font-family: inherit; }
   </header>
 
   <nav class="tabs" id="tabs">
-    <button data-t="overview" class="on">總覽</button>
+    <button data-t="chquery" class="on">🏭 彰化轉運中心追蹤</button>
+    <button data-t="overview">總覽</button>
     <button data-t="changhua">彰嘉區分析</button>
-    <button data-t="chquery">彰化查件</button>
     <button data-t="rank">排行榜</button>
     <button data-t="detail">明細查詢</button>
     <button data-t="upload">上傳資料</button>
   </nav>
 
-  <div id="tab-overview"><div class="loading">載入中…</div></div>
+  <div id="tab-overview" style="display:none"></div>
   <div id="tab-changhua" style="display:none"></div>
-  <div id="tab-chquery" style="display:none"></div>
+  <div id="tab-chquery"><div class="loading">載入中…</div></div>
   <div id="tab-rank" style="display:none"></div>
   <div id="tab-detail" style="display:none"></div>
   <div id="tab-upload" style="display:none"></div>
 </div>
 
 <div class="tooltip" id="tip"></div>
+<div id="printArea"></div>
 
 <script>
 const API = "https://hmqnlovyzlvvnkqmfwtt.supabase.co/functions/v1/misload";
@@ -210,7 +232,8 @@ let allDates = [];        // 排序後全部 stat_date
 let detailDates = [];     // [{d, cnt}] 明細實際涵蓋日（.xls 只有明細沒統計表，日期可能比統計新）
 let lastLoadTs = 0;
 let rangeN = 20;          // 0=全部
-let curTab = "overview";
+let curTab = "chquery";
+const CHQ_START = "2026-08-11";   // 彰化追蹤自此日起（之前資料不顯示）
 let detailState = { offset: 0, limit: 50, total: 0 };
 
 // ---------- 基礎 ----------
@@ -659,7 +682,7 @@ function renderChQuery() {
   const el = document.getElementById("tab-chquery");
   el.innerHTML = `
     <div class="panel">
-      <h3>彰化誤裝貨件戰情（責任站＝彰化／彰轉／低溫／籠車）</h3>
+      <h3>彰化轉運中心誤裝誤訂追蹤（責任站＝彰化／彰轉／低溫／籠車）</h3>
       <div class="hint">選擇發送日 → 下方查件清單、流向分析、道口熱點圖同步切換。點「十碼貨號」直接開該筆查件結果（需已登入貨物追蹤系統）。</div>
       <div id="cqDays" class="seg" style="flex-wrap:wrap; margin:6px 0"><button class="on" data-d="">全部</button></div>
       <div class="controls" style="margin-top:6px">
@@ -668,6 +691,7 @@ function renderChQuery() {
         <button class="btn ghost" onclick="window.open(CAG_URL,'hct')">🔗 開啟貨物追蹤系統</button>
         <button class="btn ghost" onclick="exportUnitFile()">📤 產生單位填寫檔</button>
         <button class="btn ghost" onclick="document.getElementById('fillFile').click()">📥 匯入單位回傳檔</button>
+        <button class="btn ghost" onclick="printReport()">🖨️ 列印報表</button>
         <input type="file" id="fillFile" accept=".xlsx,.xls" style="display:none">
       </div>
       <div id="unitMsg" class="hint"></div>
@@ -734,8 +758,8 @@ function renderChQuery() {
 async function buildDayChips() {
   try {
     if (!chqDates) {
-      const j = await api("agg", { date_from: "1900-01-01", date_to: "2100-12-31", group_by: "send_date", resp_station: "彰化(含籠車)" });
-      chqDates = (j.rows || []).map(r => ({ d: r.k, n: Number(r.cnt) })).sort((a, b) => a.d.localeCompare(b.d));
+      const j = await api("agg", { date_from: CHQ_START, date_to: "2100-12-31", group_by: "send_date", resp_station: "彰化(含籠車)" });
+      chqDates = (j.rows || []).map(r => ({ d: r.k, n: Number(r.cnt) })).filter(x => x.d >= CHQ_START).sort((a, b) => a.d.localeCompare(b.d));
     }
     const box = document.getElementById("cqDays");
     if (!box) return;
@@ -780,7 +804,7 @@ function chuteRelation(wrong, dest) {
 }
 function flowsOfDay() {
   if (!flowsCache) return [];
-  return chqDay ? flowsCache.filter(r => r.send_date === chqDay) : flowsCache;
+  return flowsCache.filter(r => chqDay ? r.send_date === chqDay : r.send_date >= CHQ_START);
 }
 // 作業場域：發轉(彰化/彰轉)才適用道口分析；冷鏈/籠車在不同場域作業
 function fieldOf(r) {
@@ -951,7 +975,7 @@ async function queryChq() {
   else tbl.innerHTML = `<div class="loading">查詢中…</div>`;
   try {
     const j = await api("details", {
-      date_from: chqDay || null,
+      date_from: chqDay || CHQ_START,
       date_to: chqDay || null,
       resp_station: "彰化(含籠車)",
       note_station: document.getElementById("cqN").value.trim() || null,
@@ -1251,8 +1275,8 @@ async function loadPivot(force) {
   const key = chqDay || "all";
   if (!force && pivotKey === key && pivotRows) { renderPivot(); return; }
   try {
-    const params = { resp_station: "彰化(含籠車)" };
-    if (chqDay) { params.date_from = chqDay; params.date_to = chqDay; }
+    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START };
+    if (chqDay) params.date_to = chqDay;
     const { rows } = await fetchAllDetails(params, (n, t) => { box.textContent = `載入回覆資料… ${n}/${t}`; });
     pivotRows = rows; pivotKey = key;
     renderPivot();
@@ -1318,6 +1342,57 @@ function renderPivot() {
     dr.onclick = tableClick;
   }));
 }
+// ---------- 列印報表（A4 橫式：查件清單＋樞紐分析） ----------
+async function printReport() {
+  const msg = document.getElementById("unitMsg");
+  msg.textContent = "整理列印資料…";
+  try {
+    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START, resp_unit: chqUnit || null, note_station: document.getElementById("cqN").value.trim() || null };
+    if (chqDay) params.date_to = chqDay;
+    const { rows } = await fetchAllDetails(params, (n, t) => msg.textContent = `整理列印資料… ${n}/${t}`);
+    if (!rows.length) { msg.textContent = "沒有可列印的資料"; return; }
+    rows.sort((a, b) => unitOrder(a.resp_unit) - unitOrder(b.resp_unit) || a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0));
+    const filled = rows.filter(hasFill);
+    const items = filled.map(r => ({ ...r, _u: r.resp_unit || "未填單位", _c: classifyReason(r.reply) }));
+    const seenU = [...new Set(items.map(i => i._u))];
+    const units = [...UNIT_OPTS.filter(u => seenU.includes(u)), ...seenU.filter(u => !UNIT_OPTS.includes(u) && u !== "未填單位").sort(), ...(seenU.includes("未填單位") ? ["未填單位"] : [])];
+    const cats = CAT_LIST.map(c => c.k).filter(k => items.some(i => i._c === k));
+    const cnt = {};
+    items.forEach(i => { cnt[i._u + "|" + i._c] = (cnt[i._u + "|" + i._c] || 0) + 1; });
+    const scope = chqDay ? `發送日 ${chqDay}` : `發送日 ${CHQ_START} 起（全部）`;
+    const now = new Date().toLocaleString("zh-Hant", { hour12: false });
+    let html = `<h1>彰化轉運中心 誤裝誤訂追蹤報表</h1>
+      <div class="pmeta">${scope}　共 ${rows.length} 筆・已回覆 ${filled.length} 筆（${Math.round(filled.length / rows.length * 100)}%）${chqUnit ? `・篩選單位：${esc(chqUnit === "(未填)" ? "待回覆" : chqUnit)}` : ""}　｜　製表時間：${now}</div>`;
+    if (items.length) {
+      html += `<div class="psec">回覆樞紐分析（原因分類 × 責任單位）</div>`;
+      html += `<div class="plegend">` + cats.map(k => `<i style="background:${cssVar(catColor(k))}"></i>${esc(k)}`).join("") + `</div>`;
+      html += units.map(u => {
+        const tot = items.filter(i => i._u === u).length;
+        const segs = cats.map(k => { const n = cnt[u + "|" + k] || 0; return n ? `<span style="background:${cssVar(catColor(k))};flex:${n}"></span>` : ""; }).join("");
+        return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:9pt"><span style="width:56px;text-align:right;font-weight:700">${esc(u)}</span><span class="pbar" style="flex:1;max-width:420px">${segs}</span><span>${tot} 筆</span></div>`;
+      }).join("");
+      html += `<table style="margin-top:6px;max-width:660px"><thead><tr><th>原因分類＼單位</th>${units.map(u => `<th>${esc(u)}</th>`).join("")}<th>合計</th></tr></thead><tbody>` +
+        cats.map(k => `<tr><td style="text-align:left">${esc(k)}</td>${units.map(u => `<td>${cnt[u + "|" + k] || ""}</td>`).join("")}<td><b>${items.filter(i => i._c === k).length}</b></td></tr>`).join("") +
+        `<tr><td style="text-align:left"><b>合計</b></td>${units.map(u => `<td><b>${items.filter(i => i._u === u).length}</b></td>`).join("")}<td><b>${items.length}</b></td></tr></tbody></table>`;
+    }
+    html += `<div class="psec">查件清單（依責任單位排序，共 ${rows.length} 筆）</div>
+      <table><thead><tr><th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號</th><th>發送日</th><th>發送站</th><th>件數</th><th>到著站</th><th>註區站</th><th>註區件數</th><th>註區碼</th><th>註區日</th><th>責任單位</th><th>誤裝誤訂原因</th><th>改善方式</th></tr></thead><tbody>` +
+      rows.map(r => `<tr>
+        <td>${esc(chName(r.resp_station))}</td><td>${md(r.work_date) || ""}</td><td>${esc(r.work_time) || ""}</td>
+        <td>${esc(r.tracking_no)}</td><td>${md(r.send_date)}</td><td>${esc(r.send_station)}</td>
+        <td>${r.pieces ?? ""}</td><td>${esc(r.dest_station)}</td><td>${esc(stName(r.note_station))}</td>
+        <td>${r.note_pieces ?? ""}</td><td>${esc(r.note_code) || ""}</td><td>${md(r.note_date) || ""}</td>
+        <td>${esc(r.resp_unit) || ""}</td><td class="wrapc">${esc(r.reply) || ""}</td><td class="wrapc">${esc(r.improve) || ""}</td></tr>`).join("") +
+      `</tbody></table>`;
+    document.getElementById("printArea").innerHTML = html;
+    msg.textContent = "";
+    document.body.classList.add("printing");
+    window.print();
+  } catch (e) {
+    msg.innerHTML = `<span class="msg-err">列印準備失敗：${esc(e.message)}</span>`;
+  }
+}
+window.addEventListener("afterprint", () => document.body.classList.remove("printing"));
 // ---------- 產生單位填寫檔 / 匯入回傳檔 ----------
 const FILL_HEADS = ["責任站", "作業日", "作業時間", "十碼貨號", "發送日期", "發送站", "發送件數", "到著站", "註區站", "註區件數", "註區碼", "註區日", "責任單位", "誤裝誤訂原因", "改善方式"];
 const ymdCompact = d => d ? d.replaceAll("-", "") : "";
@@ -1330,14 +1405,21 @@ async function exportUnitFile() {
     const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)" },
       (n, t) => msg.textContent = `撈取中… ${n}/${t}`);
     if (!rows.length) { msg.textContent = `${day} 查無彰化貨件`; return; }
-    const aoa = [FILL_HEADS.map(h => sCell(h, HEADER_STYLE))];
+    // 樣式：全欄框線；原因/改善靠左自動換行、其餘置中
+    const BR = { style: "thin", color: { rgb: "B8B8B8" } };
+    const BORDER = { border: { top: BR, bottom: BR, left: BR, right: BR } };
+    const C_CENTER = { alignment: { horizontal: "center", vertical: "center" }, ...BORDER };
+    const C_WRAP = { alignment: { horizontal: "left", vertical: "center", wrapText: true }, ...BORDER };
+    const C_HEAD = { ...HEADER_STYLE, ...BORDER };
+    const aoa = [FILL_HEADS.map(h => sCell(h, C_HEAD))];
     rows.forEach(r => aoa.push([
       r.resp_station, ymdCompact(r.work_date), r.work_time, r.tracking_no, ymdCompact(r.send_date),
       r.send_station, r.pieces, r.dest_station, r.note_station, r.note_pieces, r.note_code,
       ymdCompact(r.note_date), r.resp_unit, r.reply, r.improve,
-    ].map(v => sCell(v))));
+    ].map((v, ci) => sCell(v, ci >= 13 ? C_WRAP : C_CENTER))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [8, 10, 9, 13, 10, 8, 9, 8, 8, 9, 8, 10, 9, 30, 30].map(w => ({ wch: w }));
+    ws["!cols"] = [8, 10, 9, 13, 10, 8, 9, 8, 8, 9, 8, 10, 10, 45, 45].map(w => ({ wch: w }));
+    ws["!rows"] = [{ hpt: 26 }];  // 只固定標題列高，資料列讓 Excel 依換行內容自動調整
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "本所");
     const mmdd = day.slice(5).replace("-", "");
@@ -1404,7 +1486,7 @@ async function loadUnitStats() {
   if (!el) return;
   try {
     const j = await api("agg", {
-      date_from: chqDay || "1900-01-01", date_to: chqDay || "2100-12-31",
+      date_from: chqDay || CHQ_START, date_to: chqDay || "2100-12-31",
       group_by: "resp_unit", resp_station: "彰化(含籠車)",
     });
     const m = {};
