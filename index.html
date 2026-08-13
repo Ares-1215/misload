@@ -734,7 +734,7 @@ function renderChQuery() {
       <div id="cqDays" class="seg" style="flex-wrap:wrap; margin:6px 0"><button class="on" data-d="">全部</button></div>
       <div class="controls" style="margin-top:6px">
         <button class="btn ghost" onclick="window.open(CAG_URL,'hct')">🔗 開啟貨物追蹤系統</button>
-        <button class="btn ghost" onclick="exportUnitFile()">📤 產生單位填寫檔</button>
+        <button class="btn ghost" onclick="exportUnitFile()" title="在查件清單點選單位標籤後，即產生該單位專屬檔案">📤 產生單位填寫檔</button>
         <button class="btn ghost" id="impBtn" onclick="document.getElementById('fillFile').click()">📥 匯入單位回傳檔</button>
         <button class="btn ghost" onclick="printReport()">🖨️ 列印報表</button>
         <input type="file" id="fillFile" accept=".xlsx,.xls" style="display:none">
@@ -1446,11 +1446,13 @@ async function exportUnitFile() {
   const msg = document.getElementById("unitMsg");
   const day = chqDay || (chqDates && chqDates.length ? chqDates[chqDates.length - 1].d : null);
   if (!day) { msg.textContent = "尚無資料可產生"; return; }
-  msg.textContent = `撈取 ${day} 資料中…`;
+  // 依查件清單目前選的單位標籤產檔：選了單位→該單位專屬檔；沒選→全部
+  const unitLabel = chqUnit === "(未填)" ? "待回覆" : chqUnit;
+  msg.textContent = `撈取 ${day} ${unitLabel || "全部"}資料中…`;
   try {
-    const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)" },
+    const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)", resp_unit: chqUnit || null },
       (n, t) => msg.textContent = `撈取中… ${n}/${t}`);
-    if (!rows.length) { msg.textContent = `${day} 查無彰化貨件`; return; }
+    if (!rows.length) { msg.textContent = `${day} ${unitLabel ? unitLabel + " " : ""}查無貨件`; return; }
     // 樣式：全欄框線；原因/改善靠左自動換行、其餘置中
     const BR = { style: "thin", color: { rgb: "B8B8B8" } };
     const BORDER = { border: { top: BR, bottom: BR, left: BR, right: BR } };
@@ -1469,8 +1471,9 @@ async function exportUnitFile() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "本所");
     const mmdd = day.slice(5).replace("-", "");
-    XLSX.writeFile(wb, `彰化轉運中心誤裝誤訂貨件_${mmdd}.xlsx`);
-    msg.innerHTML = `<span class="msg-ok">✅ 已產生 彰化轉運中心誤裝誤訂貨件_${mmdd}.xlsx（${fmtN(rows.length)} 筆），請發給各單位填寫。</span>`;
+    const fname = unitLabel ? `${unitLabel}單位誤裝誤訂_${mmdd}.xlsx` : `彰化轉運中心誤裝誤訂貨件_${mmdd}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    msg.innerHTML = `<span class="msg-ok">✅ 已產生 ${fname}（${fmtN(rows.length)} 筆）${unitLabel ? `，請發給 ${unitLabel} 單位填寫。` : "，請發給各單位填寫。"}</span>`;
   } catch (e) {
     msg.innerHTML = `<span class="msg-err">產生失敗：${esc(e.message)}</span>`;
   }
