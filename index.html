@@ -733,8 +733,6 @@ function renderChQuery() {
       <div class="hint">選擇發送日 → 下方查件清單、流向分析、道口熱點圖同步切換。點「十碼貨號」直接開該筆查件結果（需已登入貨物追蹤系統）。</div>
       <div id="cqDays" class="seg" style="flex-wrap:wrap; margin:6px 0"><button class="on" data-d="">全部</button></div>
       <div class="controls" style="margin-top:6px">
-        <label>註區站<input id="cqN" style="width:100px" placeholder="全部"></label>
-        <button class="btn" id="cqGo">查詢</button>
         <button class="btn ghost" onclick="window.open(CAG_URL,'hct')">🔗 開啟貨物追蹤系統</button>
         <button class="btn ghost" onclick="exportUnitFile()">📤 產生單位填寫檔</button>
         <button class="btn ghost" id="impBtn" onclick="document.getElementById('fillFile').click()">📥 匯入單位回傳檔</button>
@@ -770,7 +768,6 @@ function renderChQuery() {
         <div id="chuteBox" class="loading">載入中…</div>
       </div>
     </div>`;
-  document.getElementById("cqGo").addEventListener("click", () => { chqState.offset = 0; queryChq(); });
   document.getElementById("cqTbl").addEventListener("click", tableClick);
   document.getElementById("fillFile").addEventListener("change", e => {
     if (e.target.files[0]) { importFillFile(e.target.files[0]); e.target.value = ""; }
@@ -1027,7 +1024,6 @@ async function queryChq() {
       date_from: chqDay || CHQ_START,
       date_to: chqDay || null,
       resp_station: "彰化(含籠車)",
-      note_station: document.getElementById("cqN").value.trim() || null,
       resp_unit: chqUnit || null,
       limit: chqSortUnit ? 500 : chqState.limit,
       offset: chqSortUnit ? 0 : chqState.offset,
@@ -1397,7 +1393,7 @@ async function printReport() {
   const msg = document.getElementById("unitMsg");
   msg.textContent = "整理列印資料…";
   try {
-    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START, resp_unit: chqUnit || null, note_station: document.getElementById("cqN").value.trim() || null };
+    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START, resp_unit: chqUnit || null };
     if (chqDay) params.date_to = chqDay;
     const { rows } = await fetchAllDetails(params, (n, t) => msg.textContent = `整理列印資料… ${n}/${t}`);
     if (!rows.length) { msg.textContent = "沒有可列印的資料"; return; }
