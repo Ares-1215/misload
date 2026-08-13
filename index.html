@@ -724,8 +724,11 @@ function tableClick(e) {
 }
 let chqState = { offset: 0, limit: 50, total: 0 };
 let chqDay = "";                 // '' = 全部
-let chqUnit = "";                // '' = 全部單位；'(未填)'；或單位名（點統計標籤篩選）
-let chqSort = { key: null, dir: 1 };   // 表頭排序：key=欄位、dir=1正序/-1逆序；key=null 為匯入預設順序
+let chqUnits = [];               // 單位標籤複選；空陣列＝全部（可含 '(未填)'）
+const unitLabelOf = u => u === "(未填)" ? "待回覆" : u;
+const unitScopeLabel = () => chqUnits.length ? chqUnits.map(unitLabelOf).join("、") : "";
+let chqSort = [];                // 多層排序：[{key,dir}]，空＝匯入預設順序
+let chqFilters = {};             // 欄位篩選：{col:[值…]}，"(未填)" 代表空白
 let chqDates = null;
 function renderChQuery() {
   const el = document.getElementById("tab-chquery");
@@ -815,26 +818,32 @@ const SORT_COLS = {
   note_station: { label: "註區站", tip: "相同註區站聚在一起，筆數多的在前" },
   dest_station: { label: "到著站", tip: "相同到著站聚在一起，筆數多的在前" },
 };
+// 多層排序：依 chqSort 順序逐層比較
 function sortRows(rows) {
-  const k = chqSort.key;
-  if (!k) return rows;
-  const dir = chqSort.dir;
+  if (!chqSort.length) return rows;
   const tie = (a, b) => a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0);
-  if (k === "resp_unit") {
-    return rows.sort((a, b) => (unitOrder(a.resp_unit) - unitOrder(b.resp_unit)) * dir
-      || (a.resp_unit || "").localeCompare(b.resp_unit || "") * dir || tie(a, b));
-  }
-  const freq = {};
-  rows.forEach(r => { const v = (r[k] || "").trim(); if (v) freq[v] = (freq[v] || 0) + 1; });
-  const rank = r => {
-    const v = (r[k] || "").trim();
-    return v ? { empty: 0, n: freq[v], v } : { empty: 1, n: 0, v: "" };
+  // 每個排序層預先算出該欄各值的筆數（相同值聚集、多者在前）
+  const freqs = {};
+  chqSort.forEach(({ key }) => {
+    if (key === "resp_unit") return;
+    const f = {};
+    rows.forEach(r => { const v = (r[key] || "").trim(); if (v) f[v] = (f[v] || 0) + 1; });
+    freqs[key] = f;
+  });
+  const cmpLayer = ({ key, dir }, a, b) => {
+    if (key === "resp_unit") {
+      return (unitOrder(a.resp_unit) - unitOrder(b.resp_unit)) * dir
+        || (a.resp_unit || "").localeCompare(b.resp_unit || "") * dir;
+    }
+    const va = (a[key] || "").trim(), vb = (b[key] || "").trim();
+    if (!va !== !vb) return va ? -1 : 1;                       // 空值恆在最後
+    if (!va) return 0;
+    const f = freqs[key];
+    return (f[vb] - f[va]) * dir || va.localeCompare(vb, "zh-Hant") * dir;
   };
   return rows.sort((a, b) => {
-    const ra = rank(a), rb = rank(b);
-    if (ra.empty !== rb.empty) return ra.empty - rb.empty;      // 空值恆在最後
-    if (ra.empty) return tie(a, b);
-    return (rb.n - ra.n) * dir || ra.v.localeCompare(rb.v, "zh-Hant") * dir || tie(a, b);
+    for (const layer of chqSort) { const c = cmpLayer(layer, a, b); if (c) return c; }
+    return tie(a, b);
   });
 }
 async function queryChq() {
@@ -842,12 +851,13 @@ async function queryChq() {
   if (tbl.offsetHeight > 40) { tbl.style.minHeight = tbl.offsetHeight + "px"; tbl.style.opacity = ".45"; }
   else tbl.innerHTML = `<div class="loading">查詢中…</div>`;
   try {
-    const sorting = !!chqSort.key;
+    const sorting = chqSort.length > 0;
     const j = await api("details", {
       date_from: chqDay || CHQ_START,
       date_to: chqDay || null,
       resp_station: "彰化(含籠車)",
-      resp_unit: chqUnit || null,
+      resp_units: chqUnits,
+      col_filters: chqFilters,
       limit: sorting ? 500 : chqState.limit,
       offset: sorting ? 0 : chqState.offset,
     });
@@ -858,11 +868,17 @@ async function queryChq() {
     if (!j.rows?.length) { tbl.style.minHeight = ""; tbl.style.opacity = ""; tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.className = "tblwrap cqwrap";
-    const sortTh = (key, extraCls) => {
+    const sortTh = (key) => {
       const c = SORT_COLS[key];
-      const on = chqSort.key === key;
-      const mark = on ? (chqSort.dir === 1 ? "▼" : "▲") : "⇅";
-      return `<th class="sortth${extraCls ? " " + extraCls : ""}" data-sk="${key}" style="cursor:pointer;${on ? "color:var(--accent);font-weight:700" : ""}" title="${esc(c.tip)}（再點一次逆序，第三次還原預設順序）">${c.label} <span style="opacity:${on ? 1 : .45}">${mark}</span></th>`;
+      const li = chqSort.findIndex(s => s.key === key);
+      const on = li >= 0;
+      const mark = on ? (chqSort[li].dir === 1 ? "▼" : "▲") : "⇅";
+      const order = on && chqSort.length > 1 ? `<sup style="color:var(--accent)">${li + 1}</sup>` : "";
+      const fon = (chqFilters[key] || []).length;
+      return `<th class="sortth" style="${on ? "color:var(--accent);font-weight:700" : ""}">
+        <span class="skey" data-sk="${key}" style="cursor:pointer" title="${esc(c.tip)}｜點擊排序（再點逆序、第三次移除該層；可多欄疊加）">${c.label} <span style="opacity:${on ? 1 : .45}">${mark}</span>${order}</span>
+        <span class="fbtn" data-fk="${key}" style="cursor:pointer;margin-left:4px;opacity:${fon ? 1 : .4};color:var(--${fon ? "s4" : "muted"})" title="篩選此欄（可複選）">▼${fon ? `<b>${fon}</b>` : ""}</span>
+      </th>`;
     };
     tbl.innerHTML = `<table class="tbl cqt"><thead><tr>
       ${sortTh("resp_station")}<th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th>${sortTh("dest_station")}${sortTh("note_station")}<th class="num">註區件數</th><th>註區碼</th><th>註區日</th>${sortTh("resp_unit")}${sortTh("reply")}${sortTh("improve")}
@@ -879,14 +895,19 @@ async function queryChq() {
         ${fill3Html(r)}</tr>`).join("") + `</tbody></table>`;
     tbl.style.minHeight = ""; tbl.style.opacity = "";
     tbl.scrollTop = 0;
-    tbl.querySelectorAll("th.sortth").forEach(th => th.addEventListener("click", () => {
-      const k = th.dataset.sk;
-      // 三態循環：正序 → 逆序 → 還原預設
-      if (chqSort.key !== k) chqSort = { key: k, dir: 1 };
-      else if (chqSort.dir === 1) chqSort = { key: k, dir: -1 };
-      else chqSort = { key: null, dir: 1 };
+    tbl.querySelectorAll("th .skey").forEach(el2 => el2.addEventListener("click", () => {
+      const k = el2.dataset.sk;
+      const i = chqSort.findIndex(s => s.key === k);
+      // 三態循環：正序 → 逆序 → 移除該層（多欄可疊加）
+      if (i < 0) chqSort = [...chqSort, { key: k, dir: 1 }];
+      else if (chqSort[i].dir === 1) chqSort = chqSort.map((s, j) => j === i ? { key: k, dir: -1 } : s);
+      else chqSort = chqSort.filter((_, j) => j !== i);
       chqState.offset = 0;
       queryChq();
+    }));
+    tbl.querySelectorAll("th .fbtn").forEach(el2 => el2.addEventListener("click", e => {
+      e.stopPropagation();
+      openColFilter(el2.dataset.fk, el2);
     }));
     renderChqPager();
   } catch (e) {
@@ -896,9 +917,16 @@ async function queryChq() {
 }
 function renderChqPager() {
   const pg = document.getElementById("cqPager");
-  if (chqSort.key) {
-    const c = SORT_COLS[chqSort.key];
-    pg.innerHTML = `<span class="hint">已依「${c.label}」${chqSort.dir === 1 ? "正序" : "逆序"}排列（未填在最後），一次顯示 ${fmtN(Math.min(chqState.total, 500))} 筆。再點該欄標題可逆序／還原預設順序。</span>`;
+  const fkeys = Object.keys(chqFilters).filter(k => (chqFilters[k] || []).length);
+  const chips = [
+    ...chqSort.map((s, i) => `${chqSort.length > 1 ? (i + 1) + "." : ""}${SORT_COLS[s.key].label}${s.dir === 1 ? "▼" : "▲"}`),
+  ].join("　");
+  const fchips = fkeys.map(k => `${SORT_COLS[k]?.label || k}：${chqFilters[k].map(unitLabelOf).join("、")}`).join("；");
+  if (chqSort.length) {
+    pg.innerHTML = `<span class="hint">排序：${chips}（未填在最後）${fchips ? `｜篩選：${esc(fchips)}` : ""}　顯示 ${fmtN(Math.min(chqState.total, 500))} 筆</span>
+      <button class="iconbtn" id="cqClearSort">清除排序</button>${fkeys.length ? `<button class="iconbtn" id="cqClearFilter">清除篩選</button>` : ""}`;
+    pg.querySelector("#cqClearSort").addEventListener("click", () => { chqSort = []; chqState.offset = 0; queryChq(); });
+    pg.querySelector("#cqClearFilter")?.addEventListener("click", () => { chqFilters = {}; chqState.offset = 0; queryChq(); });
     return;
   }
   const { offset, limit, total } = chqState;
@@ -906,9 +934,71 @@ function renderChqPager() {
   pg.innerHTML = `
     <button class="iconbtn" ${page <= 1 ? "disabled" : ""} id="cqPrev">‹ 上一頁</button>
     <span>第 ${page} / ${pages} 頁</span>
-    <button class="iconbtn" ${page >= pages ? "disabled" : ""} id="cqNext">下一頁 ›</button>`;
+    <button class="iconbtn" ${page >= pages ? "disabled" : ""} id="cqNext">下一頁 ›</button>
+    ${fchips ? `<span class="hint" style="margin-left:8px">篩選：${esc(fchips)}</span><button class="iconbtn" id="cqClearFilter2">清除篩選</button>` : ""}`;
   pg.querySelector("#cqPrev")?.addEventListener("click", () => { chqState.offset -= limit; queryChq(); });
   pg.querySelector("#cqNext")?.addEventListener("click", () => { chqState.offset += limit; queryChq(); });
+  pg.querySelector("#cqClearFilter2")?.addEventListener("click", () => { chqFilters = {}; chqState.offset = 0; queryChq(); });
+}
+// ---------- 欄位篩選選單（多選） ----------
+async function openColFilter(key, anchor) {
+  document.getElementById("colFilterPop")?.remove();
+  const pop = document.createElement("div");
+  pop.id = "colFilterPop";
+  pop.style.cssText = "position:absolute;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.28);padding:10px;width:262px;font-weight:400;color:var(--ink)";
+  const rect = anchor.getBoundingClientRect();
+  pop.style.left = Math.min(rect.left + scrollX, innerWidth - 276) + "px";
+  pop.style.top = (rect.bottom + scrollY + 4) + "px";
+  pop.innerHTML = `<div class="hint">載入 ${SORT_COLS[key].label} 選項…</div>`;
+  document.body.appendChild(pop);
+  const close = ev => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener("mousedown", close); } };
+  setTimeout(() => document.addEventListener("mousedown", close), 0);
+  try {
+    // 以目前日期/單位條件撈全量，統計該欄各值筆數（不含本欄自身的篩選，才能改選）
+    const others = { ...chqFilters }; delete others[key];
+    const params = { date_from: chqDay || CHQ_START, resp_station: "彰化(含籠車)", resp_units: chqUnits, col_filters: others };
+    if (chqDay) params.date_to = chqDay;
+    const { rows } = await fetchAllDetails(params);
+    const cnt = {};
+    rows.forEach(r => { const v = (r[key] || "").trim() || "(未填)"; cnt[v] = (cnt[v] || 0) + 1; });
+    const opts = Object.entries(cnt).sort((a, b) => (a[0] === "(未填)") - (b[0] === "(未填)") || b[1] - a[1] || a[0].localeCompare(b[0], "zh-Hant"));
+    let sel = new Set(chqFilters[key] || []);
+    pop.innerHTML = `
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">篩選：${SORT_COLS[key].label}</div>
+      <input id="cfSearch" placeholder="搜尋…" style="width:100%;border:1px solid var(--border);background:var(--page);color:var(--ink);border-radius:6px;padding:5px 8px;font-size:12px;margin-bottom:6px">
+      <div id="cfList" style="max-height:230px;overflow:auto;font-size:13px;border:1px solid var(--grid);border-radius:6px;padding:4px"></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn" id="cfApply" style="flex:1;padding:6px">套用</button>
+        <button class="iconbtn" id="cfAll">全選</button>
+        <button class="iconbtn" id="cfNone">清除</button>
+      </div>`;
+    const list = pop.querySelector("#cfList");
+    const paint = (kw = "") => {
+      list.innerHTML = opts.filter(([v]) => !kw || v.includes(kw)).map(([v, n]) =>
+        `<label style="display:flex;gap:6px;align-items:center;padding:3px 4px;cursor:pointer;border-radius:4px">
+          <input type="checkbox" value="${esc(v)}" ${sel.has(v) ? "checked" : ""}>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(v)}">${esc(v === "(未填)" ? "（未填）" : v)}</span>
+          <span style="color:var(--muted);font-size:11px">${n}</span></label>`).join("") ||
+        `<div class="hint" style="padding:6px">無符合項目</div>`;
+      list.querySelectorAll("input").forEach(cb => cb.addEventListener("change", () => {
+        cb.checked ? sel.add(cb.value) : sel.delete(cb.value);
+      }));
+    };
+    paint();
+    pop.querySelector("#cfSearch").addEventListener("input", e => paint(e.target.value.trim()));
+    pop.querySelector("#cfAll").addEventListener("click", () => { opts.forEach(([v]) => sel.add(v)); paint(pop.querySelector("#cfSearch").value.trim()); });
+    pop.querySelector("#cfNone").addEventListener("click", () => { sel = new Set(); paint(pop.querySelector("#cfSearch").value.trim()); });
+    pop.querySelector("#cfApply").addEventListener("click", () => {
+      const arr = [...sel];
+      if (!arr.length || arr.length === opts.length) delete chqFilters[key];
+      else chqFilters[key] = arr;
+      pop.remove(); document.removeEventListener("mousedown", close);
+      chqState.offset = 0;
+      queryChq();
+    });
+  } catch (e) {
+    pop.innerHTML = `<div class="msg-err" style="font-size:12px">${esc(e.message)}</div>`;
+  }
 }
 
 // ---------- 明細查詢 ----------
@@ -1223,11 +1313,12 @@ async function printReport() {
   const msg = document.getElementById("unitMsg");
   msg.textContent = "整理列印資料…";
   try {
-    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START, resp_unit: chqUnit || null };
+    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START, resp_units: chqUnits, col_filters: chqFilters };
     if (chqDay) params.date_to = chqDay;
     const { rows } = await fetchAllDetails(params, (n, t) => msg.textContent = `整理列印資料… ${n}/${t}`);
     if (!rows.length) { msg.textContent = "沒有可列印的資料"; return; }
-    rows.sort((a, b) => unitOrder(a.resp_unit) - unitOrder(b.resp_unit) || a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0));
+    if (chqSort.length) sortRows(rows);
+    else rows.sort((a, b) => unitOrder(a.resp_unit) - unitOrder(b.resp_unit) || a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0));
     const filled = rows.filter(hasFill);
     const items = filled.map(r => ({ ...r, _u: r.resp_unit || "未填單位", _c: classifyReason(r.reply) }));
     const seenU = [...new Set(items.map(i => i._u))];
@@ -1238,7 +1329,7 @@ async function printReport() {
     const scope = chqDay ? `發送日 ${chqDay}` : `發送日 ${CHQ_START} 起（全部）`;
     const now = new Date().toLocaleString("zh-Hant", { hour12: false });
     let html = `<h1>彰化轉運中心 誤裝誤訂追蹤報表</h1>
-      <div class="pmeta">${scope}　共 ${rows.length} 筆・已回覆 ${filled.length} 筆（${Math.round(filled.length / rows.length * 100)}%）${chqUnit ? `・篩選單位：${esc(chqUnit === "(未填)" ? "待回覆" : chqUnit)}` : ""}　｜　製表時間：${now}</div>`;
+      <div class="pmeta">${scope}　共 ${rows.length} 筆・已回覆 ${filled.length} 筆（${Math.round(filled.length / rows.length * 100)}%）${chqUnits.length ? `・篩選單位：${esc(unitScopeLabel())}` : ""}　｜　製表時間：${now}</div>`;
     if (items.length) {
       html += `<div class="psec">回覆樞紐分析（原因分類 × 責任單位）</div>`;
       html += `<div class="plegend">` + cats.map(k => `<i style="background:${cssVar(catColor(k))}"></i>${esc(k)}`).join("") + `</div>`;
@@ -1277,10 +1368,10 @@ async function exportUnitFile() {
   const day = chqDay || (chqDates && chqDates.length ? chqDates[chqDates.length - 1].d : null);
   if (!day) { msg.textContent = "尚無資料可產生"; return; }
   // 依查件清單目前選的單位標籤產檔：選了單位→該單位專屬檔；沒選→全部
-  const unitLabel = chqUnit === "(未填)" ? "待回覆" : chqUnit;
+  const unitLabel = unitScopeLabel();
   msg.textContent = `撈取 ${day} ${unitLabel || "全部"}資料中…`;
   try {
-    const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)", resp_unit: chqUnit || null },
+    const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)", resp_units: chqUnits, col_filters: chqFilters },
       (n, t) => msg.textContent = `撈取中… ${n}/${t}`);
     if (!rows.length) { msg.textContent = `${day} ${unitLabel ? unitLabel + " " : ""}查無貨件`; return; }
     // 樣式：全欄框線；原因/改善靠左自動換行、其餘置中
@@ -1380,15 +1471,19 @@ async function loadUnitStats() {
       ...Object.keys(m).filter(u => u !== "(空白)" && !UNIT_OPTS.includes(u)).sort(),
     ];
     const chip = (label, n, cv, key) => {
-      const on = chqUnit === key;
-      return `<span class="upill uchip" data-un="${esc(key)}" style="cursor:pointer;border-color:var(${cv});color:${on ? "#fff" : `var(${cv})`};background:${on ? `var(${cv})` : "transparent"}" title="點擊篩選此單位">${esc(label)} ${n}</span>`;
+      const on = key === "" ? !chqUnits.length : chqUnits.includes(key);
+      return `<span class="upill uchip" data-un="${esc(key)}" style="cursor:pointer;border-color:var(${cv});color:${on ? "#fff" : `var(${cv})`};background:${on ? `var(${cv})` : "transparent"}" title="${key === "" ? "顯示全部" : "點擊加入／移除此篩選（可複選）"}">${esc(label)}${n == null ? "" : " " + n}</span>`;
     };
-    el.innerHTML = `｜ ` + unitsPresent.map(u => chip(u, m[u], UNIT_COLOR[u] || "--good", u)).join(" ") +
+    el.innerHTML = `｜ ` + chip("全部", total, "--muted", "") + " " +
+      unitsPresent.map(u => chip(u, m[u], UNIT_COLOR[u] || "--good", u)).join(" ") +
       (pend ? ` ${chip("待回覆", pend, "--s4", "(未填)")}` : "") +
       `　<span class="cqprog"><span class="bar"><i style="width:${pct}%"></i></span><b style="color:var(--${pct === 100 ? "good" : "ink"})">${pct}%</b> 已回覆</span>` +
-      (chqUnit ? ` <span class="hint">（篩選中：${esc(chqUnit === "(未填)" ? "待回覆" : chqUnit)}，再點一次取消）</span>` : "");
+      (chqUnits.length ? ` <span class="hint">（篩選中：${esc(unitScopeLabel())}）</span>` : "");
     el.querySelectorAll(".uchip").forEach(c => c.addEventListener("click", () => {
-      chqUnit = chqUnit === c.dataset.un ? "" : c.dataset.un;
+      const k = c.dataset.un;
+      if (k === "") chqUnits = [];
+      else if (chqUnits.includes(k)) chqUnits = chqUnits.filter(x => x !== k);
+      else chqUnits = [...chqUnits, k];
       chqState.offset = 0;
       queryChq();
     }));
