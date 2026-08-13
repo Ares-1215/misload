@@ -72,6 +72,8 @@ tr.replied td.rcell { color: var(--good); font-weight:600; }
 .cqwrap { max-height: 620px; overflow: auto; border: 1px solid var(--grid); border-radius: 10px; -webkit-overflow-scrolling: touch; }
 .cqwrap table.tbl { border-collapse: separate; border-spacing: 0; }
 .cqwrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 5; box-shadow: 0 1px 0 var(--grid); padding: 9px 9px; }
+.cqwrap thead th.sortth { user-select: none; }
+.cqwrap thead th.sortth:hover { color: var(--accent); background: rgba(42,120,214,.08); }
 table.cqt th, table.cqt td { white-space: nowrap; }
 table.cqt td { padding: 7px 9px; border-bottom: 1px solid var(--grid); }
 table.cqt tbody tr:nth-child(even) td { background: rgba(137,135,129,.055); }
@@ -723,7 +725,7 @@ function tableClick(e) {
 let chqState = { offset: 0, limit: 50, total: 0 };
 let chqDay = "";                 // '' = 全部
 let chqUnit = "";                // '' = 全部單位；'(未填)'；或單位名（點統計標籤篩選）
-let chqSortUnit = false;         // 點「責任單位」表頭 → 依單位排序（發轉→到轉→冷鏈→籠車→其他→未填）
+let chqSort = { key: null, dir: 1 };   // 表頭排序：key=欄位、dir=1正序/-1逆序；key=null 為匯入預設順序
 let chqDates = null;
 function renderChQuery() {
   const el = document.getElementById("tab-chquery");
@@ -804,32 +806,66 @@ const unitOrder = u => {
   const i = UNIT_OPTS.indexOf(u);
   return i >= 0 ? i : 50;
 };
+// 可排序欄位：責任單位依固定順序；其餘依「相同值聚集、筆數多的在前」，空值一律最後
+const SORT_COLS = {
+  resp_unit: { label: "責任單位", tip: "依單位排序（發轉→到轉→冷鏈→籠車）" },
+  reply: { label: "誤裝誤訂原因", tip: "相同原因聚在一起，筆數多的在前" },
+  improve: { label: "改善方式", tip: "相同改善方式聚在一起，筆數多的在前" },
+  resp_station: { label: "責任站", tip: "相同責任站聚在一起，筆數多的在前" },
+  note_station: { label: "註區站", tip: "相同註區站聚在一起，筆數多的在前" },
+  dest_station: { label: "到著站", tip: "相同到著站聚在一起，筆數多的在前" },
+};
+function sortRows(rows) {
+  const k = chqSort.key;
+  if (!k) return rows;
+  const dir = chqSort.dir;
+  const tie = (a, b) => a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0);
+  if (k === "resp_unit") {
+    return rows.sort((a, b) => (unitOrder(a.resp_unit) - unitOrder(b.resp_unit)) * dir
+      || (a.resp_unit || "").localeCompare(b.resp_unit || "") * dir || tie(a, b));
+  }
+  const freq = {};
+  rows.forEach(r => { const v = (r[k] || "").trim(); if (v) freq[v] = (freq[v] || 0) + 1; });
+  const rank = r => {
+    const v = (r[k] || "").trim();
+    return v ? { empty: 0, n: freq[v], v } : { empty: 1, n: 0, v: "" };
+  };
+  return rows.sort((a, b) => {
+    const ra = rank(a), rb = rank(b);
+    if (ra.empty !== rb.empty) return ra.empty - rb.empty;      // 空值恆在最後
+    if (ra.empty) return tie(a, b);
+    return (rb.n - ra.n) * dir || ra.v.localeCompare(rb.v, "zh-Hant") * dir || tie(a, b);
+  });
+}
 async function queryChq() {
   const tbl = document.getElementById("cqTbl");
   if (tbl.offsetHeight > 40) { tbl.style.minHeight = tbl.offsetHeight + "px"; tbl.style.opacity = ".45"; }
   else tbl.innerHTML = `<div class="loading">查詢中…</div>`;
   try {
+    const sorting = !!chqSort.key;
     const j = await api("details", {
       date_from: chqDay || CHQ_START,
       date_to: chqDay || null,
       resp_station: "彰化(含籠車)",
       resp_unit: chqUnit || null,
-      limit: chqSortUnit ? 500 : chqState.limit,
-      offset: chqSortUnit ? 0 : chqState.offset,
+      limit: sorting ? 500 : chqState.limit,
+      offset: sorting ? 0 : chqState.offset,
     });
-    if (chqSortUnit && j.rows) {
-      j.rows.sort((a, b) => unitOrder(a.resp_unit) - unitOrder(b.resp_unit)
-        || (a.resp_unit || "").localeCompare(b.resp_unit || "")
-        || a.send_date.localeCompare(b.send_date) || (a.seq ?? 0) - (b.seq ?? 0));
-    }
+    if (sorting && j.rows) sortRows(j.rows);
     chqState.total = j.total || 0;
     document.getElementById("cqInfo").innerHTML = `共 ${fmtN(chqState.total)} 筆（彰化＋彰轉＋低溫＋籠車）　<span id="cqUnits"></span>`;
     loadUnitStats();
     if (!j.rows?.length) { tbl.style.minHeight = ""; tbl.style.opacity = ""; tbl.innerHTML = `<div class="loading">查無資料</div>`; renderChqPager(); return; }
     j.rows.forEach(r => detailRowsById[r.id] = r);
     tbl.className = "tblwrap cqwrap";
+    const sortTh = (key, extraCls) => {
+      const c = SORT_COLS[key];
+      const on = chqSort.key === key;
+      const mark = on ? (chqSort.dir === 1 ? "▼" : "▲") : "⇅";
+      return `<th class="sortth${extraCls ? " " + extraCls : ""}" data-sk="${key}" style="cursor:pointer;${on ? "color:var(--accent);font-weight:700" : ""}" title="${esc(c.tip)}（再點一次逆序，第三次還原預設順序）">${c.label} <span style="opacity:${on ? 1 : .45}">${mark}</span></th>`;
+    };
     tbl.innerHTML = `<table class="tbl cqt"><thead><tr>
-      <th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th><th>到著站</th><th>註區站</th><th class="num">註區件數</th><th>註區碼</th><th>註區日</th><th id="cqUnitTh" style="cursor:pointer;color:var(--accent)" title="點擊切換：依單位排序（發轉→到轉→冷鏈→籠車）／預設順序">責任單位 ${chqSortUnit ? "▼" : "⇅"}</th><th>誤裝誤訂原因</th><th>改善方式</th>
+      ${sortTh("resp_station")}<th>作業日</th><th>作業時間</th><th>十碼貨號（點擊查件）</th><th>發送日期</th><th>發送站</th><th class="num">發送件數</th>${sortTh("dest_station")}${sortTh("note_station")}<th class="num">註區件數</th><th>註區碼</th><th>註區日</th>${sortTh("resp_unit")}${sortTh("reply")}${sortTh("improve")}
       </tr></thead><tbody>` +
       j.rows.map(r => `<tr data-rid="${r.id}" class="${hasFill(r) ? "rowdone" : "rowpend"}">
         <td><b>${esc(chName(r.resp_station))}</b></td>
@@ -843,11 +879,15 @@ async function queryChq() {
         ${fill3Html(r)}</tr>`).join("") + `</tbody></table>`;
     tbl.style.minHeight = ""; tbl.style.opacity = "";
     tbl.scrollTop = 0;
-    document.getElementById("cqUnitTh")?.addEventListener("click", () => {
-      chqSortUnit = !chqSortUnit;
+    tbl.querySelectorAll("th.sortth").forEach(th => th.addEventListener("click", () => {
+      const k = th.dataset.sk;
+      // 三態循環：正序 → 逆序 → 還原預設
+      if (chqSort.key !== k) chqSort = { key: k, dir: 1 };
+      else if (chqSort.dir === 1) chqSort = { key: k, dir: -1 };
+      else chqSort = { key: null, dir: 1 };
       chqState.offset = 0;
       queryChq();
-    });
+    }));
     renderChqPager();
   } catch (e) {
     tbl.style.minHeight = ""; tbl.style.opacity = "";
@@ -856,8 +896,9 @@ async function queryChq() {
 }
 function renderChqPager() {
   const pg = document.getElementById("cqPager");
-  if (chqSortUnit) {
-    pg.innerHTML = `<span class="hint">依單位排序中（發轉→到轉→冷鏈→籠車→未填），一次顯示全部 ${fmtN(Math.min(chqState.total, 500))} 筆。點「責任單位」表頭可還原預設順序。</span>`;
+  if (chqSort.key) {
+    const c = SORT_COLS[chqSort.key];
+    pg.innerHTML = `<span class="hint">已依「${c.label}」${chqSort.dir === 1 ? "正序" : "逆序"}排列（未填在最後），一次顯示 ${fmtN(Math.min(chqState.total, 500))} 筆。再點該欄標題可逆序／還原預設順序。</span>`;
     return;
   }
   const { offset, limit, total } = chqState;
