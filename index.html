@@ -1089,7 +1089,8 @@ async function queryDetails() {
   }
 }
 let detailRowsById = {};
-const hasFill = r => !!((r.reply && r.reply.trim()) || r.resp_unit || (r.improve && r.improve.trim()));
+// 「已回覆」＝有填原因或改善方式（僅有責任單位不算，因為籠車件的單位是上傳時自動帶入的）
+const hasFill = r => !!((r.reply && r.reply.trim()) || (r.improve && r.improve.trim()));
 // 彰化查件：責任單位／原因／改善方式 三欄（點任一欄開啟填寫視窗）
 const UNIT_COLOR = { "發轉": "--s1", "到轉": "--s3", "冷鏈": "--s7", "籠車": "--s2" };
 function unitPill(u) {
@@ -1163,12 +1164,12 @@ function ensureFillModal() {
       });
       r.resp_unit = j.unit; r.reply = j.reply; r.improve = j.improve;
       refreshFillCells(fmCur.id);
-      loadUnitStats();
       if (pivotRows) {
         const pr = pivotRows.find(x => x.id === Number(fmCur.id));
         if (pr) { pr.resp_unit = j.unit; pr.reply = j.reply; pr.improve = j.improve; }
         renderPivot();
       }
+      loadUnitStats();
       d.style.display = "none";
     } catch (err) {
       d.querySelector("#fmMsg").textContent = "儲存失敗：" + err.message;
@@ -1246,6 +1247,7 @@ async function loadPivot(force) {
     const { rows } = await fetchAllDetails(params, (n, t) => { box.textContent = `載入回覆資料… ${n}/${t}`; });
     pivotRows = rows; pivotKey = key;
     renderPivot();
+    loadUnitStats();   // 回覆率以全量資料重算
   } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
 }
 function renderPivot() {
@@ -1374,23 +1376,84 @@ async function exportUnitFile() {
     const { rows } = await fetchAllDetails({ date_from: day, date_to: day, resp_station: "彰化(含籠車)", resp_units: chqUnits, col_filters: chqFilters },
       (n, t) => msg.textContent = `撈取中… ${n}/${t}`);
     if (!rows.length) { msg.textContent = `${day} ${unitLabel ? unitLabel + " " : ""}查無貨件`; return; }
-    // 樣式：全欄框線；原因/改善靠左自動換行、其餘置中
-    const BR = { style: "thin", color: { rgb: "B8B8B8" } };
+    // 依目前網頁排序輸出（未排序時預設依單位）
+    if (chqSort.length) sortRows(rows);
+    else rows.sort((a, b) => unitOrder(a.resp_unit) - unitOrder(b.resp_unit) || (a.seq ?? 0) - (b.seq ?? 0));
+
+    // ── 樣式：全表粗體、框線；單位色帶；未回覆整列淺黃 ──
+    const BR = { style: "thin", color: { rgb: "9AA4B0" } };
     const BORDER = { border: { top: BR, bottom: BR, left: BR, right: BR } };
-    const C_CENTER = { alignment: { horizontal: "center", vertical: "center" }, ...BORDER };
-    const C_WRAP = { alignment: { horizontal: "left", vertical: "center", wrapText: true }, ...BORDER };
-    const C_HEAD = { ...HEADER_STYLE, ...BORDER };
-    const aoa = [FILL_HEADS.map(h => sCell(h, C_HEAD))];
-    rows.forEach(r => aoa.push([
-      r.resp_station, ymdCompact(r.work_date), r.work_time, r.tracking_no, ymdCompact(r.send_date),
-      r.send_station, r.pieces, r.dest_station, r.note_station, r.note_pieces, r.note_code,
-      ymdCompact(r.note_date), r.resp_unit, r.reply, r.improve,
-    ].map((v, ci) => sCell(v, ci >= 13 ? C_WRAP : C_CENTER))));
+    const BOLD = { bold: true, sz: 11, name: "微軟正黑體" };
+    const cell = (v, opt = {}) => ({
+      v: v == null ? "" : v,
+      t: typeof v === "number" ? "n" : "s",
+      s: {
+        font: { ...BOLD, ...(opt.font || {}) },
+        alignment: { horizontal: opt.wrap ? "left" : "center", vertical: "center", wrapText: !!opt.wrap },
+        ...(opt.fill ? { fill: { fgColor: { rgb: opt.fill } } } : {}),
+        ...BORDER,
+      },
+    });
+    const UNIT_XL = { "發轉": { fill: "DCE9FA", font: { color: { rgb: "10457F" } } }, "到轉": { fill: "DAF3E6", font: { color: { rgb: "0B5B36" } } }, "冷鏈": { fill: "E7E2F8", font: { color: { rgb: "3B2A82" } } }, "籠車": { fill: "FCE4D2", font: { color: { rgb: "8A3B10" } } } };
+    const PEND_FILL = "FFF6D9";   // 未回覆整列淺黃
+    const aoa = [FILL_HEADS.map(h => cell(h, { fill: "1F4E79", font: { color: { rgb: "FFFFFF" }, sz: 12 } }))];
+    rows.forEach(r => {
+      const pend = !hasFill(r);
+      const base = pend ? { fill: PEND_FILL } : {};
+      aoa.push([
+        r.resp_station, ymdCompact(r.work_date), r.work_time, r.tracking_no, ymdCompact(r.send_date),
+        r.send_station, r.pieces, r.dest_station, r.note_station, r.note_pieces, r.note_code,
+        ymdCompact(r.note_date), r.resp_unit, r.reply, r.improve,
+      ].map((v, ci) => {
+        if (ci === 12 && r.resp_unit && UNIT_XL[r.resp_unit]) return cell(v, UNIT_XL[r.resp_unit]);
+        return cell(v, { ...base, wrap: ci >= 13 });
+      }));
+    });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws["!cols"] = [8, 10, 9, 13, 10, 8, 9, 8, 8, 9, 8, 10, 10, 45, 45].map(w => ({ wch: w }));
-    ws["!rows"] = [{ hpt: 26 }];  // 只固定標題列高，資料列讓 Excel 依換行內容自動調整
+    ws["!rows"] = [{ hpt: 28 }];
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: FILL_HEADS.length - 1 } }) };
+    ws["!margins"] = { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "本所");
+    XLSX.utils.book_append_sheet(wb, ws, "誤裝誤訂明細");
+
+    // ── 工作表2：統計摘要（單位 × 原因分類）供長官報告 ──
+    const filled = rows.filter(hasFill);
+    const items = filled.map(r => ({ u: r.resp_unit || "未填單位", c: classifyReason(r.reply) }));
+    const uSeen = [...new Set(items.map(i => i.u))];
+    const units = [...UNIT_OPTS.filter(u => uSeen.includes(u)), ...uSeen.filter(u => !UNIT_OPTS.includes(u)).sort()];
+    const cats = CAT_LIST.map(c => c.k).filter(k => items.some(i => i.c === k));
+    const cnt = {};
+    items.forEach(i => { cnt[i.u + "|" + i.c] = (cnt[i.u + "|" + i.c] || 0) + 1; });
+    const T = (v, o) => cell(v, o);
+    const s2 = [
+      [T(`彰化轉運中心 誤裝誤訂統計摘要（${day}${unitLabel ? "・" + unitLabel : ""}）`, { fill: "1F4E79", font: { color: { rgb: "FFFFFF" }, sz: 14 } })],
+      [T(`總件數 ${rows.length}　已回覆 ${filled.length}　未回覆 ${rows.length - filled.length}　回覆率 ${rows.length ? Math.round(filled.length / rows.length * 100) : 0}%`, { font: { sz: 12 } })],
+      [],
+      [T("原因分類 ＼ 責任單位", { fill: "1F4E79", font: { color: { rgb: "FFFFFF" } } }), ...units.map(u => T(u, { fill: "1F4E79", font: { color: { rgb: "FFFFFF" } } })), T("合計", { fill: "1F4E79", font: { color: { rgb: "FFFFFF" } } })],
+    ];
+    cats.forEach(k => s2.push([
+      T(k, { wrap: false, fill: "EEF3F8" }),
+      ...units.map(u => T(cnt[u + "|" + k] || 0)),
+      T(items.filter(i => i.c === k).length, { fill: "F2F2F2" }),
+    ]));
+    s2.push([
+      T("合計", { fill: "1F4E79", font: { color: { rgb: "FFFFFF" } } }),
+      ...units.map(u => T(items.filter(i => i.u === u).length, { fill: "DCE9FA" })),
+      T(items.length, { fill: "FFE08A" }),
+    ]);
+    const ws2 = XLSX.utils.aoa_to_sheet(s2);
+    ws2["!cols"] = [{ wch: 22 }, ...units.map(() => ({ wch: 12 })), { wch: 10 }];
+    ws2["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 24 }];
+    ws2["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: units.length + 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: units.length + 1 } },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws2, "統計摘要");
+
+    // 列印：每頁重複標題列（Print_Titles 定義名稱）
+    wb.Workbook = { Names: [{ Name: "_xlnm.Print_Titles", Sheet: 0, Ref: "'誤裝誤訂明細'!$1:$1" }] };
+    ws2["!margins"] = { left: 0.4, right: 0.4, top: 0.6, bottom: 0.6, header: 0.2, footer: 0.2 };
     const mmdd = day.slice(5).replace("-", "");
     const fname = unitLabel ? `${unitLabel}單位誤裝誤訂_${mmdd}.xlsx` : `彰化轉運中心誤裝誤訂貨件_${mmdd}.xlsx`;
     XLSX.writeFile(wb, fname);
@@ -1463,9 +1526,12 @@ async function loadUnitStats() {
     let total = 0;
     (j.rows || []).forEach(r => { m[r.k] = Number(r.cnt); total += Number(r.cnt); });
     if (!total) { el.innerHTML = ""; return; }
-    const pend = m["(空白)"] || 0;
-    const done = total - pend;
-    const pct = Math.round(done / total * 100);
+    const noUnit = m["(空白)"] || 0;
+    // 回覆進度以「已填原因/改善」計（pivotRows 為同範圍全量資料）
+    const src = (pivotRows && pivotKey === (chqDay || "all")) ? pivotRows : null;
+    const done = src ? src.filter(hasFill).length : total - noUnit;
+    const pend = (src ? src.length : total) - done;
+    const pct = Math.round(done / (src ? src.length : total) * 100);
     const unitsPresent = [
       ...UNIT_OPTS.filter(u => m[u]),
       ...Object.keys(m).filter(u => u !== "(空白)" && !UNIT_OPTS.includes(u)).sort(),
