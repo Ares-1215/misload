@@ -1215,17 +1215,19 @@ function refreshFillCells(id) {
 const REASON_RULES = [
   // 順序即優先權：由實際回覆歸納，逐條可調
   { k: "非本所責任", re: /無誤|非本所|前站|來貨誤/, cv: "--s3" },
+  { k: "RJ人工分貨疏失", re: /RJ|人工分貨/i, cv: "--s8" },
   { k: "堆疊/籠板錯誤", re: /堆疊|疊籠|籠板|疊板|疊貨/, cv: "--s2" },
   { k: "相鄰滑道", re: /相鄰|隔壁|滑道/, cv: "--s4" },
   { k: "簡碼/標示錯誤", re: /誤寫|寫錯|簡碼錯|標示錯|誤植/, cv: "--s7" },
-  { k: "誤掃誤訂", re: /誤掃|掃錯|誤訂|條碼/, cv: "--s8" },
+  { k: "誤掃誤訂", re: /誤掃|掃錯|誤訂|條碼/, cv: "--s5" },
   { k: "上錯櫃/轉運", re: /誤上|上錯|裝錯|誤裝/, cv: "--s1" },
-  { k: "同站所/非誤裝", re: /同站所|同站/, cv: "--s6" },
-  { k: "追加/變更", re: /追加|變更|改站|改配/, cv: "--s5" },
-  { k: "漏掃", re: /漏刷|漏掃/, cv: "--good" },
-  { k: "標籤/外裝", re: /標籤|破損|外箱/, cv: "--bad" },
+  { k: "同站所/非誤裝", re: /同站所|同站|正確|無異常|正常/, cv: "--s6" },
+  { k: "漏發/未發送", re: /未發|漏發|未上車|漏上/, cv: "--bad" },
+  { k: "追加/變更", re: /追加|變更|改站|改配/, cv: "--good" },
+  { k: "漏掃", re: /漏刷|漏掃/, cv: "--accent" },
+  { k: "標籤/外裝", re: /標籤|破損|外箱/, cv: "--axis" },
 ];
-const CAT_OTHER = { k: "其他", cv: "--s5" };
+const CAT_OTHER = { k: "其他", cv: "--axis" };
 const CAT_EMPTY = { k: "未填原因", cv: "--muted" };
 const CAT_LIST = [...REASON_RULES.map(r => ({ k: r.k, cv: r.cv })), CAT_OTHER, CAT_EMPTY];
 const catColor = k => (CAT_LIST.find(c => c.k === k) || CAT_OTHER).cv;
@@ -1234,6 +1236,36 @@ function classifyReason(t) {
   if (!s) return CAT_EMPTY.k;
   for (const r of REASON_RULES) if (r.re.test(s)) return r.k;
   return CAT_OTHER.k;
+}
+// RJ人工分貨疏失：回覆常帶「/信林A5A6」標記人力公司與籠位
+const RJ_COMPANIES = ["信林", "有根", "丞閎"];
+function rjTag(reply) {
+  const s = (reply || "");
+  const co = RJ_COMPANIES.find(c => s.includes(c)) || "未標示";
+  const m = s.match(/[A-Za-z]\d+(?:[A-Za-z]?\d+)?/g);
+  return { co, slots: m || [] };
+}
+function renderRjBox(items) {
+  const box = document.getElementById("pv-rj");
+  if (!box) return;
+  const rj = items.filter(i => i._c === "RJ人工分貨疏失");
+  if (!rj.length) { box.innerHTML = ""; return; }
+  const byCo = {}, bySlot = {};
+  rj.forEach(i => {
+    const t = rjTag(i.reply);
+    byCo[t.co] = (byCo[t.co] || 0) + 1;
+    t.slots.forEach(s => { bySlot[s] = (bySlot[s] || 0) + 1; });
+  });
+  const coList = Object.entries(byCo).sort((a, b) => b[1] - a[1]);
+  const slotList = Object.entries(bySlot).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  box.innerHTML = `
+    <h3 style="font-size:13px;margin-bottom:6px">RJ人工分貨疏失 細部（共 ${rj.length} 筆）</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><div class="hint" style="margin-bottom:3px">人力公司</div>
+        <table class="tbl">${coList.map(([c, n]) => `<tr><td>${esc(c)}</td><td class="num"><b>${n}</b> 筆</td></tr>`).join("")}</table></div>
+      <div><div class="hint" style="margin-bottom:3px">籠位標記 Top 8</div>
+        <table class="tbl">${slotList.length ? slotList.map(([s, n]) => `<tr><td>${esc(s)}</td><td class="num"><b>${n}</b></td></tr>`).join("") : `<tr><td class="hint">回覆未標記籠位</td></tr>`}</table></div>
+    </div>`;
 }
 let pivotRows = null, pivotKey = null;
 async function loadPivot(force) {
@@ -1289,13 +1321,16 @@ function renderPivot() {
     <div style="margin:8px 0 14px">${stack}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
       <div><h3 style="font-size:13px;margin-bottom:6px">分類 × 單位 樞紐矩陣（點數字看明細）</h3><div class="tblwrap">${mx}</div><div id="pv-drill" style="margin-top:8px"></div></div>
-      <div><h3 style="font-size:13px;margin-bottom:6px">每日趨勢（依原因分類）</h3><div class="chart" id="pv-trend">${days.length > 1 ? "" : '<div class="hint">切到「全部」或資料跨多日時顯示趨勢</div>'}</div></div>
+      <div><h3 style="font-size:13px;margin-bottom:6px">每日趨勢（依原因分類）</h3><div class="chart" id="pv-trend">${days.length > 1 ? "" : '<div class="hint">切到「全部」或資料跨多日時顯示趨勢</div>'}</div>
+        <div id="pv-rj" style="margin-top:12px"></div>
+      </div>
     </div>`;
   if (days.length > 1) {
     lineChart(document.getElementById("pv-trend"), days,
       cats.map(k => ({ name: k, colorVar: catColor(k), data: new Map(days.map(d => [d, items.filter(i => i.send_date === d && i._c === k).length])) })),
       { h: 240, fmt: fmtN });
   }
+  renderRjBox(items);
   box.querySelectorAll(".pvmx .cell").forEach(c => c.addEventListener("click", () => {
     const u = c.dataset.u, k = c.dataset.c;
     const list = items.filter(i => i._u === u && i._c === k);
