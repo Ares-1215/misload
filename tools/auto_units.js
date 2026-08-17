@@ -11,13 +11,16 @@
 // 判定規則（依序，2026-08-17 使用者指定）：
 //   1. 追蹤紀錄任一列出現「黃弘儒」，或 商品區分1/2 含 冷凍/冷藏 → 冷鏈
 //   2. 否則有「作業=發送＋站所=彰化＋運輸方式含籠車」 → 籠車
-//   3. 否則 頁首「到著站」=彰化 且追蹤有「到著＠彰化」紀錄 → 到轉
-//      （彰化配達區的件——含彰化自家件——到著班點過又誤裝，如 4522172911 誤裝烏日案例）
+//   3. 否則 頁首「到著站」=彰化 且追蹤有「到著＠彰化」紀錄 → 比較時間順序（2026-08-17 精修）：
+//      彰化到著時間 早於 誤站(註區站)首次出現 → 到轉（到著班點收後才誤流，如 4522172911：02:33 彰化到著→05:34 烏日）
+//      誤站出現 早於 彰化到著 → 發送階段就誤裝，落到規則 4 用發送時間判（如 3448836425：01:36 到著烏日→彰轉 16:06 發送→發轉）
+//      找不到誤站事件無法比較時 → 預設 到轉
 //   4. 否則取最早的彰化(含彰轉/彰化低溫)發送事件時間：01:00~12:59 → 到轉；13:00~00:59 → 發轉
 //   5. 無彰化發送紀錄 → 不填，列出給使用者人工確認
+//   ※ NOS 每筆要帶 DB 的註區站：[{no:"十碼貨號", wrong:"註區站"}, ...]
 
 (function(){
-  const NOS = [/* 這裡填去重後的十碼貨號字串陣列 */];
+  const NOS = [/* 這裡填去重後的 {no:"十碼貨號", wrong:"註區站"} 物件陣列 */];
   const CHQ = ["彰化","彰轉","彰化低溫"];
   window.__au = {done:0,total:NOS.length,results:[],running:true,err:null};
   const fr = document.createElement("iframe");
@@ -29,7 +32,7 @@
     fr.onload=()=>{ setTimeout(()=>{ if(!fin){fin=true;clearTimeout(t);try{res(fr.contentDocument);}catch(e){res(null);}} },600); };
     fr.src=url;
   });
-  const judge = (doc,no)=>{
+  const judge = (doc,no,wrong)=>{
     if(!doc||!doc.body) return {no,unit:null,why:"頁面載入失敗"};
     const txt = doc.body.innerText||"";
     if(!txt.includes("作業時間")) return {no,unit:null,why:"查無追蹤資料"};
@@ -61,7 +64,12 @@
     const cage = ops.find(r=>r.op==="發送"&&r.st==="彰化"&&r.way.includes("籠車"));
     if(cage) return {no,unit:"籠車",why:"彰化發送籠車貨件 "+cage.time};
     const arr = ops.filter(r=>r.op==="到著"&&r.st==="彰化").sort((a,b)=>a.time<b.time?-1:1);
-    if(destSt==="彰化" && arr.length) return {no,unit:"到轉",why:"到著站彰化＋彰化到著 "+arr[0].time};
+    if(destSt==="彰化" && arr.length){
+      const wrongEvts = wrong ? ops.filter(r=>r.st===wrong).sort((a,b)=>a.time<b.time?-1:1) : [];
+      if(!wrongEvts.length) return {no,unit:"到轉",why:"到著站彰化＋彰化到著 "+arr[0].time+"（無"+(wrong||"註區站")+"事件可比對，預設到轉）"};
+      if(arr[0].time < wrongEvts[0].time) return {no,unit:"到轉",why:"彰化到著 "+arr[0].time+" 後才誤流"+wrong+" "+wrongEvts[0].time};
+      // 誤站早於彰化到著 → 發送階段就誤裝，落到發送時間規則
+    }
     const sends = ops.filter(r=>r.op==="發送"&&CHQ.includes(r.st)).sort((a,b)=>a.time<b.time?-1:1);
     if(!sends.length) return {no,unit:null,why:"無彰化發送紀錄"};
     const m=sends[0].time.match(/(\d{1,2}):\d{2}\s*$/);
@@ -72,9 +80,9 @@
   };
   (async()=>{
     try{
-      for(const no of NOS){
-        const doc=await loadDoc("https://cagweb.hct.com.tw:8080/CAGWEB/C_PIKAM020.aspx?pACT=C_PIKAM010&pINVOICE_NO="+no+"&pADDITION_NO=000&pHCd=&pHDay=");
-        window.__au.results.push(judge(doc,no));
+      for(const item of NOS){
+        const doc=await loadDoc("https://cagweb.hct.com.tw:8080/CAGWEB/C_PIKAM020.aspx?pACT=C_PIKAM010&pINVOICE_NO="+item.no+"&pADDITION_NO=000&pHCd=&pHDay=");
+        window.__au.results.push(judge(doc,item.no,item.wrong));
         window.__au.done++;
       }
     }catch(e){ window.__au.err=String(e); }
