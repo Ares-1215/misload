@@ -11,8 +11,10 @@
 // 判定規則（依序，2026-08-17 使用者指定）：
 //   1. 追蹤紀錄任一列出現「黃弘儒」，或 商品區分1/2 含 冷凍/冷藏 → 冷鏈
 //   2. 否則有「作業=發送＋站所=彰化＋運輸方式含籠車」 → 籠車
-//   3. 否則取最早的彰化(含彰轉/彰化低溫)發送事件時間：01:00~12:59 → 到轉；13:00~00:59 → 發轉
-//   4. 無彰化發送紀錄 → 不填，列出給使用者人工確認
+//   3. 否則 頁首「到著站」=彰化 且追蹤有「到著＠彰化」紀錄 → 到轉
+//      （彰化配達區的件——含彰化自家件——到著班點過又誤裝，如 4522172911 誤裝烏日案例）
+//   4. 否則取最早的彰化(含彰轉/彰化低溫)發送事件時間：01:00~12:59 → 到轉；13:00~00:59 → 發轉
+//   5. 無彰化發送紀錄 → 不填，列出給使用者人工確認
 
 (function(){
   const NOS = [/* 這裡填去重後的十碼貨號字串陣列 */];
@@ -31,14 +33,13 @@
     if(!doc||!doc.body) return {no,unit:null,why:"頁面載入失敗"};
     const txt = doc.body.innerText||"";
     if(!txt.includes("作業時間")) return {no,unit:null,why:"查無追蹤資料"};
-    let cold=false, coldVal="";
+    let cold=false, coldVal="", destSt="";
     const tds=[...doc.querySelectorAll("td,th")];
     for(let i=0;i<tds.length-1;i++){
       const a=(tds[i].innerText||"").trim();
-      if(a==="商品區分1"||a==="商品區分2"){
-        const v=(tds[i+1].innerText||"").trim();
-        if(/冷凍|冷藏/.test(v)){ cold=true; coldVal=v; }
-      }
+      const v=(tds[i+1].innerText||"").trim();
+      if(a==="商品區分1"||a==="商品區分2"){ if(/冷凍|冷藏/.test(v)){ cold=true; coldVal=v; } }
+      if(a==="到著站" && !destSt) destSt=v;
     }
     let ops=[];
     for(const t of doc.querySelectorAll("table")){
@@ -59,6 +60,8 @@
     if(hung||cold) return {no,unit:"冷鏈",why:hung?(cold?"黃弘儒＋"+coldVal:"出現黃弘儒"):"商品區分"+coldVal};
     const cage = ops.find(r=>r.op==="發送"&&r.st==="彰化"&&r.way.includes("籠車"));
     if(cage) return {no,unit:"籠車",why:"彰化發送籠車貨件 "+cage.time};
+    const arr = ops.filter(r=>r.op==="到著"&&r.st==="彰化").sort((a,b)=>a.time<b.time?-1:1);
+    if(destSt==="彰化" && arr.length) return {no,unit:"到轉",why:"到著站彰化＋彰化到著 "+arr[0].time};
     const sends = ops.filter(r=>r.op==="發送"&&CHQ.includes(r.st)).sort((a,b)=>a.time<b.time?-1:1);
     if(!sends.length) return {no,unit:null,why:"無彰化發送紀錄"};
     const m=sends[0].time.match(/(\d{1,2}):\d{2}\s*$/);
