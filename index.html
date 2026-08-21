@@ -1470,14 +1470,14 @@ async function exportUnitFile() {
       T(items.length, { fill: "FFE08A" }),
     ]);
     const ws2 = XLSX.utils.aoa_to_sheet(s2);
-    // 標題列／摘要列要一行顯示完整：合併寬度不夠時往右多合併幾個空欄（單位少時表格本身很窄）
+    // 標題列／摘要列要一行顯示完整：表格總寬不夠時，各欄依原比例一起放大（表格寬＝標題寬）
     const dispLen = s => { let n = 0; for (const ch of String(s ?? "")) n += ch.charCodeAt(0) > 255 ? 2 : 1; return n; };
-    const cols2 = [22, ...units.map(() => 12), 10];
+    let cols2 = [22, ...units.map(() => 12), 10];
     const need = Math.ceil(Math.max(dispLen(s2[0][0].v) * 1.35, dispLen(s2[1][0].v) * 1.15)) + 4;   // 14pt/12pt 字比 11pt 寬
-    let total = cols2.reduce((a, b) => a + b, 0);
-    while (total < need) { cols2.push(12); total += 12; }
+    const total = cols2.reduce((a, b) => a + b, 0);
+    if (total < need) cols2 = cols2.map(w => Math.ceil(w * need / total));
     ws2["!cols"] = cols2.map(w => ({ wch: w }));
-    ws2["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 24 }];
+    ws2["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...cats.map(() => ({ hpt: 22 })), { hpt: 24 }];   // 表頭26、資料列22、合計24
     const lastC = cols2.length - 1;
     ws2["!merges"] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: lastC } },
