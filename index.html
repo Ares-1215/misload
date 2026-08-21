@@ -1437,8 +1437,7 @@ async function exportUnitFile() {
       }));
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [8, 10, 9, 13, 10, 8, 9, 8, 8, 9, 8, 10, 10, 45, 45].map(w => ({ wch: w }));
-    ws["!rows"] = [{ hpt: 28 }];
+    autoFitSheet(ws, aoa, { wrapCols: [13, 14], headerHpt: 28 });   // 原因／改善到 50 格才換行，列高自動
     ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: FILL_HEADS.length - 1 } }) };
     ws["!margins"] = { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
     const wb = XLSX.utils.book_new();
@@ -1618,7 +1617,31 @@ function exportRange(kind) {
   }
   return { from: `${y}-01-01`, to: `${y}-12-31`, label: `${y}年` };
 }
+// ── 依內容自動欄寬／列高（SheetJS 不會自動計算，Excel 開檔也不會重算）──
+// 中文字算 2 格；一般欄到 maxWch 為止；wrapCols 欄到 wrapMaxWch 才換行，列高依換行後行數加高
+function autoFitSheet(ws, aoa, { wrapCols = [], minWch = 6, maxWch = 30, wrapMaxWch = 50, headerHpt = 28, lineHpt = 16 } = {}) {
+  const dispLen = s => { let n = 0; for (const ch of String(s ?? "")) n += ch.charCodeAt(0) > 255 ? 2 : 1; return n; };
+  const ncol = Math.max(...aoa.map(r => r.length));
+  const widths = Array.from({ length: ncol }, (_, c) => {
+    let w = 0;
+    aoa.forEach(r => { const v = r[c]?.v; if (v == null || v === "") return; for (const line of String(v).split("\n")) w = Math.max(w, dispLen(line)); });
+    return Math.min(Math.max(w + 2, minWch), wrapCols.includes(c) ? wrapMaxWch : maxWch);
+  });
+  ws["!cols"] = widths.map(w => ({ wch: w }));
+  ws["!rows"] = aoa.map((r, ri) => {
+    if (ri === 0) return { hpt: headerHpt };
+    let lines = 1;
+    for (const c of wrapCols) {
+      const v = r[c]?.v; if (v == null || v === "") continue;
+      const n = String(v).split("\n").reduce((s, line) => s + Math.max(1, Math.ceil(dispLen(line) / (widths[c] - 1))), 0);
+      lines = Math.max(lines, n);
+    }
+    return lines === 1 ? { hpt: 20 } : { hpt: Math.min(lines * lineHpt + 6, 409) };
+  });
+}
 const CENTER = { alignment: { horizontal: "center", vertical: "center", wrapText: false } };
+const WRAP_LEFT = { alignment: { horizontal: "left", vertical: "center", wrapText: true } };
+const EXP_WRAP_COLS = [8, 18, 19];   // 明細匯出：收貨地址、誤裝誤訂原因、改善方式 允許換行
 const HEADER_STYLE = { alignment: { horizontal: "center", vertical: "center" }, font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "2480E6" } } };
 function sCell(v, extra) { return { v: v == null ? "" : v, t: typeof v === "number" ? "n" : "s", s: extra || CENTER }; }
 async function exportExcel(kind) {
@@ -1651,9 +1674,9 @@ async function exportExcel(kind) {
       r.send_date, r.region_name, r.resp_station, r.work_date, r.work_time, r.tracking_no,
       r.send_station, r.sender, r.address, r.pieces, r.dest_station, r.note_station, r.note_pieces,
       r.note_code, r.note_date, r.note_time, r.note_staff, r.resp_unit, r.reply, r.improve, r.product_type,
-    ].map(v => sCell(v))));
+    ].map((v, ci) => sCell(v, EXP_WRAP_COLS.includes(ci) ? WRAP_LEFT : CENTER))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 9, 7, 11, 9, 10, 9, 22, 22, 9].map(w => ({ wch: w }));
+    autoFitSheet(ws, aoa, { wrapCols: EXP_WRAP_COLS, headerHpt: 24 });   // 地址／原因／改善換行、列高自動
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "誤裝訂明細");
     // 統計工作表（該範圍有統計資料才加）
@@ -1671,7 +1694,7 @@ async function exportExcel(kind) {
           sAoa.push(row);
         });
       const ws2 = XLSX.utils.aoa_to_sheet(sAoa);
-      ws2["!cols"] = [12, 8, 8, 8, 11, 11, 10].map(w => ({ wch: w }));
+      autoFitSheet(ws2, sAoa, { headerHpt: 22 });
       XLSX.utils.book_append_sheet(wb, ws2, "統計");
     }
     XLSX.writeFile(wb, `誤裝訂_${label}.xlsx`);
