@@ -759,6 +759,19 @@ function renderChQuery() {
         <div id="pivotBox" class="loading">載入中…</div>
       </div>
     </div>
+    <div class="panel">
+      <h3 class="collh" data-coll="cage"><span class="car">▾</span>🧱 籠車疊板籠錯誤 各線累計</h3>
+      <div data-body="cage">
+        <div class="hint">統計籠車單位回覆中的籠位代碼（A1～A6、B1～B6）：「疊籠板錯誤」與「RJ人工分貨疏失」計入各線，一筆寫兩個代碼（如 A3A6）則兩線各計 1 件；外包公司依回覆內標示的公司名統計（涵蓋籠車所有回覆）。</div>
+        <div class="controls" style="margin:8px 0;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px">區間 <input type="date" id="cgFrom"> ～ <input type="date" id="cgTo"></label>
+          <div class="seg" id="cgQuick"><button class="on" data-q="all">8/11 起累計</button><button data-q="week">本週</button><button data-q="month">本月</button></div>
+          <button class="btn ghost" onclick="loadCage(true)">🔄 重新統計</button>
+          <button class="btn ghost" onclick="exportCageExcel()">📤 匯出 Excel</button>
+        </div>
+        <div id="cageBox" class="loading">載入中…</div>
+      </div>
+    </div>
     </div>`;
   document.getElementById("cqTbl").addEventListener("click", tableClick);
   document.getElementById("fillFile").addEventListener("change", e => {
@@ -772,7 +785,7 @@ function renderChQuery() {
     queryChq(); loadPivot();
   });
   // 可收合面板：流向分析/熱點圖每次載入一律收合（點標題展開）；樞紐分析記住上次狀態
-  const COLL_DEF = { pivot: "0" };
+  const COLL_DEF = { pivot: "0", cage: "0" };
   const ALWAYS_CLOSED = [];
   el.querySelectorAll("h3.collh").forEach(h => {
     const k = h.dataset.coll;
@@ -791,6 +804,8 @@ function renderChQuery() {
   buildDayChips();
   queryChq();
   loadPivot();
+  initCageControls();
+  loadCage();
 }
 async function buildDayChips() {
   try {
@@ -1337,6 +1352,165 @@ function renderPivot() {
     dr.onclick = tableClick;
   }));
 }
+// ---------- 籠車疊板籠錯誤 各線累計（主管用：哪一線錯最多＋外包公司） ----------
+const CAGE_LINES = ["A1", "A2", "A3", "A4", "A5", "A6", "B1", "B2", "B3", "B4", "B5", "B6"];
+const CAGE_TYPES = ["疊籠板錯誤", "RJ人工分貨疏失", "誤上櫃", "其他"];
+const LINE_TYPES = ["疊籠板錯誤", "RJ人工分貨疏失"];        // 計入各線的錯誤類型
+const NO_LINE = "未標示籠位";
+function cageType(reply) {
+  const s = (reply || "").trim();
+  if (/疊籠|疊板|籠板|疊貨/.test(s)) return "疊籠板錯誤";
+  if (/RJ|人工分貨/i.test(s)) return "RJ人工分貨疏失";
+  if (/誤上櫃|上錯櫃|誤上/.test(s)) return "誤上櫃";
+  return "其他";
+}
+function cageSlots(reply) {           // 「信林A3A6」→ ["A3","A6"]；同一筆重複代碼只算一次
+  const m = (reply || "").toUpperCase().match(/[AB]\d{1,2}/g) || [];
+  return [...new Set(m)];
+}
+function cageStats(rows) {
+  const filled = rows.filter(hasFill);
+  const items = filled.map(r => {
+    const t = cageType(r.reply);
+    return { ...r, _t: t, _co: RJ_COMPANIES.find(c => (r.reply || "").includes(c)) || "未標示", _slots: LINE_TYPES.includes(t) ? cageSlots(r.reply) : [] };
+  });
+  const dates = [...new Set(rows.map(r => r.send_date))].sort();
+  const cos = [...RJ_COMPANIES.filter(c => items.some(i => i._co === c)), ...(items.some(i => i._co === "未標示") ? ["未標示"] : [])];
+  const coCnt = {};
+  items.forEach(i => { coCnt[i._co + "|" + i._t] = (coCnt[i._co + "|" + i._t] || 0) + 1; coCnt[i._co + "|all"] = (coCnt[i._co + "|all"] || 0) + 1; });
+  const lineItems = items.filter(i => LINE_TYPES.includes(i._t));
+  const lc = {}, seen = new Set();
+  lineItems.forEach(i => (i._slots.length ? i._slots : [NO_LINE]).forEach(l => {
+    seen.add(l);
+    lc[l + "|" + i.send_date] = (lc[l + "|" + i.send_date] || 0) + 1;
+    lc[l + "|t|" + i._t] = (lc[l + "|t|" + i._t] || 0) + 1;
+    lc[l + "|all"] = (lc[l + "|all"] || 0) + 1;
+  }));
+  const lines = [...CAGE_LINES, ...[...seen].filter(l => !CAGE_LINES.includes(l) && l !== NO_LINE).sort(), ...(seen.has(NO_LINE) ? [NO_LINE] : [])];
+  const coded = lines.filter(l => l !== NO_LINE);
+  const codedTotal = coded.reduce((s, l) => s + (lc[l + "|all"] || 0), 0);
+  const rank = {};
+  coded.slice().sort((a, b) => (lc[b + "|all"] || 0) - (lc[a + "|all"] || 0)).forEach((l, i) => { if (lc[l + "|all"]) rank[l] = i + 1; });
+  const dateTot = {};
+  dates.forEach(d => { dateTot[d] = coded.reduce((s, l) => s + (lc[l + "|" + d] || 0), 0); });
+  return { rows, filled, items, dates, cos, coCnt, lines, coded, lc, codedTotal, rank, dateTot, lineItems };
+}
+let cageData = null;
+function cageRangeOf(q) {
+  const L = latestDataDate() || CHQ_START;
+  if (q === "week" || q === "month") { const r = exportRange(q); if (r) return { from: r.from < CHQ_START ? CHQ_START : r.from, to: r.to < L ? r.to : L }; }
+  return { from: CHQ_START, to: L };
+}
+function initCageControls() {
+  const f = document.getElementById("cgFrom"), t = document.getElementById("cgTo");
+  if (!f) return;
+  const r = cageRangeOf("all"); f.value = r.from; t.value = r.to;
+  const setQuick = q => document.querySelectorAll("#cgQuick button").forEach(b => b.classList.toggle("on", b.dataset.q === q));
+  document.getElementById("cgQuick").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const rr = cageRangeOf(b.dataset.q); f.value = rr.from; t.value = rr.to; setQuick(b.dataset.q); loadCage();
+  });
+  [f, t].forEach(x => x.addEventListener("change", () => { setQuick(""); loadCage(); }));
+}
+async function loadCage(force) {
+  const box = document.getElementById("cageBox");
+  if (!box) return;
+  const from = document.getElementById("cgFrom").value || CHQ_START;
+  const to = document.getElementById("cgTo").value || latestDataDate() || "2100-12-31";
+  const key = from + "|" + to;
+  if (!force && cageData && cageData.key === key) { renderCage(); return; }
+  box.className = "loading"; box.textContent = "載入籠車回覆…";
+  try {
+    const { rows } = await fetchAllDetails({ resp_station: "彰化(含籠車)", resp_units: ["籠車"], date_from: from, date_to: to },
+      (n, t) => box.textContent = `載入籠車回覆… ${n}/${t}`);
+    cageData = { key, from, to, ...cageStats(rows) };
+    renderCage();
+  } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
+}
+const pct = (n, d) => d ? (n / d * 100).toFixed(1) + "%" : "—";
+function renderCage() {
+  const box = document.getElementById("cageBox");
+  if (!box || !cageData) return;
+  const S = cageData;
+  box.className = "";
+  if (!S.rows.length) { box.innerHTML = `<div class="hint">此區間沒有籠車單位的貨件。</div>`; return; }
+  if (!S.items.length) { box.innerHTML = `<div class="hint">此區間籠車件 ${S.rows.length} 筆，尚無回覆——籠車單位回傳後這裡會自動統計。</div>`; return; }
+  const head = `<div class="hint">區間 ${md(S.from)}～${md(S.to)}　籠車件 <b>${fmtN(S.rows.length)}</b> 筆・已回覆 <b>${fmtN(S.items.length)}</b> 筆（${pct(S.items.length, S.rows.length)}）・計入各線（疊籠板錯誤＋RJ）<b>${fmtN(S.lineItems.length)}</b> 筆</div>`;
+  // 外包公司
+  let co = `<table class="tbl pvmx"><thead><tr><th>外包公司</th>${CAGE_TYPES.map(t => `<th class="num">${t}</th>`).join("")}<th class="num">合計</th><th class="num">占比</th></tr></thead><tbody>`;
+  S.cos.forEach(c => {
+    co += `<tr><td><b>${esc(c)}</b></td>${CAGE_TYPES.map(t => `<td class="num">${S.coCnt[c + "|" + t] || "·"}</td>`).join("")}<td class="num"><b>${S.coCnt[c + "|all"] || 0}</b></td><td class="num">${pct(S.coCnt[c + "|all"] || 0, S.items.length)}</td></tr>`;
+  });
+  co += `<tr><td><b>合計</b></td>${CAGE_TYPES.map(t => `<td class="num"><b>${S.items.filter(i => i._t === t).length || "·"}</b></td>`).join("")}<td class="num"><b>${S.items.length}</b></td><td class="num">100%</td></tr></tbody></table>`;
+  // 各線長條（由多到少，第一名紅色）
+  const sorted = S.coded.filter(l => S.lc[l + "|all"]).sort((a, b) => S.lc[b + "|all"] - S.lc[a + "|all"]);
+  const mx = sorted.length ? S.lc[sorted[0] + "|all"] : 1;
+  const bars = sorted.length ? sorted.map((l, i) => `<div class="pvrow"><span class="lbl">${esc(l)}</span><div style="flex:1"><span class="track" style="width:${Math.max(6, S.lc[l + "|all"] / mx * 100).toFixed(0)}%"><span class="seg" style="background:var(${i === 0 ? "--bad" : "--s2"});flex:1"></span></span></div><span class="tot">${S.lc[l + "|all"]} 筆・${pct(S.lc[l + "|all"], S.codedTotal)}</span></div>`).join("")
+    : `<div class="hint">回覆尚未標示籠位代碼</div>`;
+  // 線 × 日期 矩陣
+  let mt = `<table class="tbl pvmx"><thead><tr><th>籠位線</th>${S.dates.map(d => `<th class="num">${md(d)}</th>`).join("")}<th class="num">累計</th><th class="num">占比</th><th class="num">排名</th></tr></thead><tbody>`;
+  S.lines.forEach(l => {
+    const tot = S.lc[l + "|all"] || 0, isNo = l === NO_LINE, top = S.rank[l] === 1;
+    const st = top ? ' style="color:var(--bad);font-weight:700"' : (isNo ? ' style="color:var(--muted)"' : "");
+    mt += `<tr${st}><td>${esc(l)}${top ? " 🔺" : ""}</td>${S.dates.map(d => `<td class="num">${S.lc[l + "|" + d] || "·"}</td>`).join("")}<td class="num"><b>${tot || "·"}</b></td><td class="num">${isNo ? "—" : pct(tot, S.codedTotal)}</td><td class="num">${S.rank[l] ? S.rank[l] : "—"}</td></tr>`;
+  });
+  mt += `<tr><td><b>合計</b></td>${S.dates.map(d => `<td class="num"><b>${S.dateTot[d] || "·"}</b></td>`).join("")}<td class="num"><b>${S.codedTotal}</b></td><td class="num">100%</td><td class="num"></td></tr></tbody></table>`;
+  box.innerHTML = `${head}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-top:10px">
+      <div><h3 style="font-size:13px;margin-bottom:6px">外包公司 × 錯誤類型（籠車全部回覆）</h3><div class="tblwrap">${co}</div></div>
+      <div><h3 style="font-size:13px;margin-bottom:6px">各線錯誤件數（疊籠板錯誤＋RJ，由多到少）</h3>${bars}</div>
+    </div>
+    <h3 style="font-size:13px;margin:14px 0 6px">各線 × 日期 累計表（🔺＝錯誤最多的線）</h3><div class="tblwrap">${mt}</div>`;
+}
+function exportCageExcel() {
+  const msg = document.getElementById("unitMsg");
+  if (!cageData || !cageData.items.length) { msg.textContent = "籠車累計表尚無資料可匯出"; return; }
+  const S = cageData;
+  const BR = { style: "thin", color: { rgb: "9AA4B0" } };
+  const X = (v, o = {}) => ({ v: v == null ? "" : v, t: typeof v === "number" ? "n" : "s", s: {
+    font: { bold: true, sz: o.sz || 11, name: "微軟正黑體", ...(o.color ? { color: { rgb: o.color } } : {}) },
+    alignment: { horizontal: o.left ? "left" : "center", vertical: "center" },
+    ...(o.fill ? { fill: { fgColor: { rgb: o.fill } } } : {}),
+    border: { top: BR, bottom: BR, left: BR, right: BR } } });
+  const H = v => X(v, { fill: "1F4E79", color: "FFFFFF" });
+  const title = `彰化轉運中心 籠車疊板籠錯誤 各線累計（${S.from}～${S.to}）`;
+  const wb = XLSX.utils.book_new();
+  // 工作表1：各線 × 日期
+  const a1 = [[X(title, { fill: "1F4E79", color: "FFFFFF", sz: 14 })], [X(`籠車件 ${S.rows.length}　已回覆 ${S.items.length}　計入各線 ${S.lineItems.length}（疊籠板錯誤＋RJ人工分貨疏失）`, { sz: 12 })], [],
+    [H("籠位線"), ...S.dates.map(d => H(md(d))), H("累計"), H("占比"), H("排名")]];
+  S.lines.forEach(l => {
+    const tot = S.lc[l + "|all"] || 0, top = S.rank[l] === 1, isNo = l === NO_LINE;
+    const o = top ? { fill: "FDE2E2", color: "B42318" } : {};
+    a1.push([X(l + (top ? " ▲" : ""), { ...o, left: true }), ...S.dates.map(d => X(S.lc[l + "|" + d] || 0, o)), X(tot, { ...o, fill: o.fill || "F2F2F2" }), X(isNo ? "—" : pct(tot, S.codedTotal), o), X(S.rank[l] ?? "—", o)]);
+  });
+  a1.push([X("合計", { fill: "DCE9FA", left: true }), ...S.dates.map(d => X(S.dateTot[d] || 0, { fill: "DCE9FA" })), X(S.codedTotal, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" }), X("", { fill: "DCE9FA" })]);
+  const ws1 = XLSX.utils.aoa_to_sheet(a1);
+  const nc1 = S.dates.length + 4;
+  ws1["!cols"] = [{ wch: 14 }, ...S.dates.map(() => ({ wch: 7 })), { wch: 9 }, { wch: 9 }, { wch: 7 }];
+  ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...S.lines.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nc1 - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: nc1 - 1 } }];
+  XLSX.utils.book_append_sheet(wb, ws1, "各線累計");
+  // 工作表2：外包公司 × 錯誤類型
+  const a2 = [[X(`外包公司 × 錯誤類型（${S.from}～${S.to}，籠車全部回覆 ${S.items.length} 筆）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })], [],
+    [H("外包公司"), ...CAGE_TYPES.map(H), H("合計"), H("占比")]];
+  S.cos.forEach(c => a2.push([X(c, { left: true }), ...CAGE_TYPES.map(t => X(S.coCnt[c + "|" + t] || 0)), X(S.coCnt[c + "|all"] || 0, { fill: "F2F2F2" }), X(pct(S.coCnt[c + "|all"] || 0, S.items.length))]));
+  a2.push([X("合計", { fill: "DCE9FA", left: true }), ...CAGE_TYPES.map(t => X(S.items.filter(i => i._t === t).length, { fill: "DCE9FA" })), X(S.items.length, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" })]);
+  const ws2 = XLSX.utils.aoa_to_sheet(a2);
+  ws2["!cols"] = [{ wch: 14 }, ...CAGE_TYPES.map(() => ({ wch: 16 })), { wch: 9 }, { wch: 9 }];
+  ws2["!rows"] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 26 }, ...S.cos.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  ws2["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: CAGE_TYPES.length + 2 } }];
+  XLSX.utils.book_append_sheet(wb, ws2, "外包公司統計");
+  // 工作表3：明細（計入各線的每一筆）
+  const a3 = [["發送日", "十碼貨號", "到著站", "註區站", "錯誤類型", "外包公司", "籠位", "回覆原文", "改善方式"].map(H)];
+  S.lineItems.forEach(i => a3.push([X(md(i.send_date)), X(i.tracking_no), X(i.dest_station), X(stName(i.note_station)), X(i._t), X(i._co), X(i._slots.join("、") || NO_LINE), X(i.reply, { left: true }), X(i.improve || "", { left: true })]));
+  const ws3 = XLSX.utils.aoa_to_sheet(a3);
+  ws3["!cols"] = [8, 13, 9, 9, 16, 10, 10, 40, 30].map(w => ({ wch: w }));
+  ws3["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: S.lineItems.length, c: 8 } }) };
+  XLSX.utils.book_append_sheet(wb, ws3, "計入各線明細");
+  const fname = `籠車各線累計_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  msg.innerHTML = `<span class="msg-ok">✅ 已匯出 ${fname}</span>`;
+}
 // ---------- 列印報表（A4 橫式：查件清單＋樞紐分析） ----------
 async function printReport() {
   const msg = document.getElementById("unitMsg");
@@ -1370,6 +1544,17 @@ async function printReport() {
       html += `<table style="margin-top:6px;max-width:660px"><thead><tr><th>原因分類＼單位</th>${units.map(u => `<th>${esc(u)}</th>`).join("")}<th>合計</th></tr></thead><tbody>` +
         cats.map(k => `<tr><td style="text-align:left">${esc(k)}</td>${units.map(u => `<td>${cnt[u + "|" + k] || ""}</td>`).join("")}<td><b>${items.filter(i => i._c === k).length}</b></td></tr>`).join("") +
         `<tr><td style="text-align:left"><b>合計</b></td>${units.map(u => `<td><b>${items.filter(i => i._u === u).length}</b></td>`).join("")}<td><b>${items.length}</b></td></tr></tbody></table>`;
+    }
+    // 籠車疊板籠錯誤 各線累計（此列印範圍內的籠車件）
+    const cg = cageStats(rows.filter(r => r.resp_unit === "籠車"));
+    if (cg.items.length) {
+      html += `<div class="psec">籠車疊板籠錯誤 各線累計（籠車件 ${cg.rows.length}・已回覆 ${cg.items.length}・計入各線 ${cg.lineItems.length}）</div>`;
+      html += `<table style="margin-top:4px"><thead><tr><th>籠位線</th>${cg.dates.map(d => `<th>${md(d)}</th>`).join("")}<th>累計</th><th>占比</th><th>排名</th></tr></thead><tbody>` +
+        cg.lines.map(l => { const tot = cg.lc[l + "|all"] || 0, top = cg.rank[l] === 1; return `<tr${top ? ' style="color:#b42318;font-weight:700"' : ""}><td style="text-align:left">${esc(l)}${top ? " ▲" : ""}</td>${cg.dates.map(d => `<td>${cg.lc[l + "|" + d] || ""}</td>`).join("")}<td><b>${tot || ""}</b></td><td>${l === NO_LINE ? "—" : pct(tot, cg.codedTotal)}</td><td>${cg.rank[l] ?? "—"}</td></tr>`; }).join("") +
+        `<tr><td style="text-align:left"><b>合計</b></td>${cg.dates.map(d => `<td><b>${cg.dateTot[d] || ""}</b></td>`).join("")}<td><b>${cg.codedTotal}</b></td><td>100%</td><td></td></tr></tbody></table>`;
+      html += `<table style="margin-top:8px;max-width:560px"><thead><tr><th>外包公司</th>${CAGE_TYPES.map(t => `<th>${t}</th>`).join("")}<th>合計</th><th>占比</th></tr></thead><tbody>` +
+        cg.cos.map(c => `<tr><td style="text-align:left"><b>${esc(c)}</b></td>${CAGE_TYPES.map(t => `<td>${cg.coCnt[c + "|" + t] || ""}</td>`).join("")}<td><b>${cg.coCnt[c + "|all"] || 0}</b></td><td>${pct(cg.coCnt[c + "|all"] || 0, cg.items.length)}</td></tr>`).join("") +
+        `<tr><td style="text-align:left"><b>合計</b></td>${CAGE_TYPES.map(t => `<td><b>${cg.items.filter(i => i._t === t).length || ""}</b></td>`).join("")}<td><b>${cg.items.length}</b></td><td>100%</td></tr></tbody></table>`;
     }
     html += `<div class="psec">查件清單（依責任單位排序，共 ${rows.length} 筆）</div>
       <table><thead><tr><th>責任站</th><th>作業日</th><th>作業時間</th><th>十碼貨號</th><th>發送日</th><th>發送站</th><th>件數</th><th>到著站</th><th>註區站</th><th>註區件數</th><th>註區碼</th><th>註區日</th><th>責任單位</th><th>誤裝誤訂原因</th><th>改善方式</th></tr></thead><tbody>` +
@@ -1544,6 +1729,7 @@ async function importFillFile(file) {
     chqState.offset = 0;
     queryChq();
     loadPivot(true);
+    loadCage(true);
   } catch (e) {
     msg.innerHTML = `<span class="msg-err">匯入失敗：${esc(e.message)}</span>`;
   }
