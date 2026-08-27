@@ -1474,19 +1474,36 @@ function renderAttr() {
     mt += `<tr${top ? ' style="color:var(--bad);font-weight:700"' : (u === AU_PEND ? ' style="color:var(--muted)"' : "")}><td>${dot}${esc(u)}${top ? " 🔺" : ""}</td>${dates.map(d => `<td class="num">${cnt[u + "|" + d] || "·"}</td>`).join("")}<td class="num"><b>${n}</b></td><td class="num">${pct(n, total)}</td><td class="num">${rank[u] || "—"}</td></tr>`;
   });
   mt += `<tr><td><b>合計</b></td>${dates.map(d => `<td class="num"><b>${dTot[d]}</b></td>`).join("")}<td class="num"><b>${total}</b></td><td class="num">100%</td><td class="num"></td></tr></tbody></table>`;
-  // 外包公司歸咎（籠車回覆）
-  const cg = cageStats(S.rows.filter(r => r.resp_unit === "籠車"));
-  let coHtml = `<div class="hint">籠車件 ${fmtN(S.rows.filter(r => r.resp_unit === "籠車").length)} 筆・已回覆 ${fmtN(cg.items.length)} 筆（依回覆內標示的公司名歸咎）</div>`;
-  if (cg.items.length) {
-    coHtml += `<div class="tblwrap"><table class="tbl pvmx"><thead><tr><th>外包公司</th>${CAGE_TYPES.map(t => `<th class="num">${t}</th>`).join("")}<th class="num">合計</th><th class="num">占比</th></tr></thead><tbody>` +
-      cg.cos.map(c => `<tr><td><b>${esc(c)}</b></td>${CAGE_TYPES.map(t => `<td class="num">${cg.coCnt[c + "|" + t] || "·"}</td>`).join("")}<td class="num"><b>${cg.coCnt[c + "|all"] || 0}</b></td><td class="num">${pct(cg.coCnt[c + "|all"] || 0, cg.items.length)}</td></tr>`).join("") +
-      `<tr><td><b>合計</b></td>${CAGE_TYPES.map(t => `<td class="num"><b>${cg.items.filter(i => i._t === t).length || "·"}</b></td>`).join("")}<td class="num"><b>${cg.items.length}</b></td><td class="num">100%</td></tr></tbody></table></div>`;
-  } else coHtml += `<div class="hint">此區間籠車尚無回覆。</div>`;
+  // 外包公司歸咎（各單位分列：每單位一張小表）
+  const per = attrCompanies(S.rows);
+  const coBlocks = UNIT_OPTS.filter(u => per[u]).map(u => {
+    const p = per[u];
+    const cos = [...RJ_COMPANIES.filter(c => p[c]), ...(p["未標示"] ? ["未標示"] : [])];
+    const topNamed = RJ_COMPANIES.filter(c => p[c]).sort((a, b) => (p[b] || 0) - (p[a] || 0))[0];
+    return `<div><h3 style="font-size:13px;margin-bottom:6px"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(${UNIT_COLOR[u]});margin-right:6px"></span>${esc(u)}<span style="color:var(--muted);font-weight:600">（已回覆 ${fmtN(p.total)} 筆）</span></h3>
+      <table class="tbl">${cos.map(c => { const n = p[c], top = c === topNamed; return `<tr${top ? ' style="color:var(--bad);font-weight:700"' : (c === "未標示" ? ' style="color:var(--muted)"' : "")}><td>${esc(c)}${top ? " 🔺" : ""}</td><td class="num"><b>${n}</b> 筆</td><td class="num">${pct(n, p.total)}</td></tr>`; }).join("")}</table></div>`;
+  }).join("");
+  const coHtml = coBlocks
+    ? `<div class="hint">依各單位回覆中標示的公司名歸咎；🔺＝該單位責任最多的外包公司（「未標示」不參與排名）</div>
+       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 18px">${coBlocks}</div>`
+    : `<div class="hint">此區間尚無回覆可歸咎。</div>`;
   box.innerHTML = `
     <div class="hint">區間 ${md(S.from)}～${md(S.to)}　彰化件共 <b>${fmtN(total)}</b> 筆（🔺＝件數最多；增減為與前一段同長度區間比較）</div>
     <div class="kpis">${kpis}</div>
     <h3 style="font-size:13px;margin:12px 0 6px">單位 × 日期 累計</h3><div class="tblwrap">${mt}</div>
-    <h3 style="font-size:13px;margin:14px 0 6px">外包公司歸咎（信林／有根／丞閎，依籠車回覆）</h3>${coHtml}`;
+    <h3 style="font-size:13px;margin:14px 0 6px">外包公司歸咎（信林／有根／丞閎，各單位分列）</h3>${coHtml}`;
+}
+// 各單位 × 外包公司：從回覆文字抓公司名（無公司名＝未標示）
+function attrCompanies(rows) {
+  const per = {};
+  rows.forEach(r => {
+    const rep = (r.reply || "").trim(); if (!rep) return;
+    const u = unitOf(r); if (u === AU_PEND) return;
+    const co = RJ_COMPANIES.find(c => rep.includes(c)) || "未標示";
+    per[u] = per[u] || { total: 0 };
+    per[u][co] = (per[u][co] || 0) + 1; per[u].total++;
+  });
+  return per;
 }
 function exportAttrExcel() {
   const msg = document.getElementById("unitMsg");
@@ -1514,15 +1531,29 @@ function exportAttrExcel() {
   ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...units.map(() => ({ hpt: 22 })), { hpt: 24 }];
   ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: dates.length + 3 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: dates.length + 3 } }];
   XLSX.utils.book_append_sheet(wb, ws1, "單位歸咎");
-  const cg = cageStats(S.rows.filter(r => r.resp_unit === "籠車"));
-  const a2 = [[X(`外包公司歸咎（${S.from}～${S.to}，籠車回覆 ${cg.items.length} 筆）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })], [],
-    [H("外包公司"), ...CAGE_TYPES.map(H), H("合計"), H("占比")]];
-  cg.cos.forEach(c => a2.push([X(c, { left: true }), ...CAGE_TYPES.map(t => X(cg.coCnt[c + "|" + t] || 0)), X(cg.coCnt[c + "|all"] || 0, { fill: "F2F2F2" }), X(pct(cg.coCnt[c + "|all"] || 0, cg.items.length))]));
-  a2.push([X("合計", { fill: "DCE9FA", left: true }), ...CAGE_TYPES.map(t => X(cg.items.filter(i => i._t === t).length, { fill: "DCE9FA" })), X(cg.items.length, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" })]);
+  // 外包公司歸咎：各單位分列（每單位一個區塊）
+  const per = attrCompanies(S.rows);
+  const UNIT_XL2 = { "發轉": "DCE9FA", "到轉": "DAF3E6", "冷鏈": "E7E2F8", "籠車": "FCE4D2" };
+  const a2 = [[X(`外包公司歸咎（${S.from}～${S.to}，各單位分列）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })]];
+  const merges2 = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+  const rows2 = [{ hpt: 30 }];
+  UNIT_OPTS.filter(u => per[u]).forEach(u => {
+    const p = per[u];
+    const cos = [...RJ_COMPANIES.filter(c => p[c]), ...(p["未標示"] ? ["未標示"] : [])];
+    const topNamed = RJ_COMPANIES.filter(c => p[c]).sort((a, b) => (p[b] || 0) - (p[a] || 0))[0];
+    a2.push([]); rows2.push({ hpt: 8 });
+    merges2.push({ s: { r: a2.length, c: 0 }, e: { r: a2.length, c: 2 } });
+    a2.push([X(`${u}（已回覆 ${p.total} 筆）`, { fill: UNIT_XL2[u] || "DCE9FA", left: true, sz: 12 })]); rows2.push({ hpt: 24 });
+    a2.push([H("外包公司"), H("件數"), H("占比")]); rows2.push({ hpt: 24 });
+    cos.forEach(c => {
+      const top = c === topNamed, o = top ? { fill: "FDE2E2", color: "B42318" } : {};
+      a2.push([X(c + (top ? " ▲" : ""), { ...o, left: true }), X(p[c], o), X(pct(p[c], p.total), o)]); rows2.push({ hpt: 22 });
+    });
+  });
   const ws2 = XLSX.utils.aoa_to_sheet(a2);
-  ws2["!cols"] = [{ wch: 12 }, ...CAGE_TYPES.map(() => ({ wch: 15 })), { wch: 8 }, { wch: 8 }];
-  ws2["!rows"] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 26 }, ...cg.cos.map(() => ({ hpt: 22 })), { hpt: 24 }];
-  ws2["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: CAGE_TYPES.length + 2 } }];
+  ws2["!cols"] = [{ wch: 18 }, { wch: 10 }, { wch: 10 }];
+  ws2["!rows"] = rows2;
+  ws2["!merges"] = merges2;
   XLSX.utils.book_append_sheet(wb, ws2, "外包公司歸咎");
   const fname = `責任歸咎_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
   XLSX.writeFile(wb, fname);
