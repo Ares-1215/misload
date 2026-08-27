@@ -1493,13 +1493,13 @@ function renderAttr() {
     <h3 style="font-size:13px;margin:12px 0 6px">單位 × 日期 累計</h3><div class="tblwrap">${mt}</div>
     <h3 style="font-size:13px;margin:14px 0 6px">外包公司歸咎（信林／有根／丞閎，各單位分列）</h3>${coHtml}`;
 }
-// 各單位 × 外包公司：從回覆文字抓公司名（無公司名＝未標示）
+// 各單位 × 外包公司：原因＋改善方式兩欄合併掃公司名（如「(信林人力)」常只寫在改善方式；無公司名＝未標示）
 function attrCompanies(rows) {
   const per = {};
   rows.forEach(r => {
-    const rep = (r.reply || "").trim(); if (!rep) return;
+    const txt = ((r.reply || "") + " " + (r.improve || "")).trim(); if (!txt) return;
     const u = unitOf(r); if (u === AU_PEND) return;
-    const co = RJ_COMPANIES.find(c => rep.includes(c)) || "未標示";
+    const co = RJ_COMPANIES.find(c => txt.includes(c)) || "未標示";
     per[u] = per[u] || { total: 0 };
     per[u][co] = (per[u][co] || 0) + 1; per[u].total++;
   });
