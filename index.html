@@ -24,15 +24,26 @@
   --good:#0ca30c; --bad:#e66767; --accent:#3987e5;
 }
 * { box-sizing: border-box; margin: 0; }
+html { scroll-behavior: smooth; }
 body {
   background: var(--page); color: var(--ink);
   font-family: system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
   font-size: 14px; line-height: 1.5;
 }
 a { color: var(--accent); }
+/* 互動狀態（全站）：轉場、hover、按壓回饋、鍵盤焦點 */
+button, .iconbtn, .btn, .seg button, nav.tabs button, h3.collh, .controls input, .controls select {
+  transition: background-color .18s, color .18s, border-color .18s, box-shadow .18s, transform .1s, filter .18s;
+}
+.iconbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:hover:not(:disabled) { filter: brightness(1.07); box-shadow: 0 2px 10px rgba(42,120,214,.25); }
+.btn.ghost:hover:not(:disabled) { background: rgba(42,120,214,.08); box-shadow: none; }
+.seg button:hover:not(.on) { color: var(--ink); background: rgba(137,135,129,.12); }
+.btn:active, .iconbtn:active, .seg button:active, nav.tabs button:active { transform: translateY(1px); }
+:is(button, input, select, a, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 .wrap { max-width: 1600px; margin: 0 auto; padding: 16px 22px; }
 header.top { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-header.top h1 { font-size: 20px; font-weight: 700; }
+header.top h1 { font-size: 21px; font-weight: 700; letter-spacing: -.2px; text-wrap: balance; }
 header.top .sub { color: var(--muted); font-size: 12px; }
 .spacer { flex: 1; }
 .iconbtn { border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:8px; padding:5px 10px; cursor:pointer; font-size:13px; }
@@ -46,7 +57,7 @@ nav.tabs button.on { background:var(--accent); border-color:var(--accent); color
 .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:14px; }
 .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; }
 .card .k { color:var(--muted); font-size:12px; }
-.card .v { font-size:26px; font-weight:700; margin:2px 0; }
+.card .v { font-size:26px; font-weight:700; margin:2px 0; font-variant-numeric:tabular-nums; letter-spacing:-.3px; }
 .card .d { font-size:12px; color:var(--ink-2); }
 .card .d .up { color:var(--bad); } .card .d .down { color:var(--good); }
 .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px; }
@@ -56,7 +67,7 @@ nav.tabs button.on { background:var(--accent); border-color:var(--accent); color
 .legend { display:flex; flex-wrap:wrap; gap:10px 14px; margin:6px 0 2px; font-size:12px; color:var(--ink-2); }
 .legend .it { display:inline-flex; align-items:center; gap:5px; }
 .legend .sw { width:10px; height:10px; border-radius:3px; display:inline-block; }
-.tooltip { position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.18); padding:8px 10px; font-size:12px; z-index:30; display:none; min-width:120px; }
+.tooltip { position:absolute; pointer-events:none; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 6px 18px rgba(28,38,58,.20); padding:8px 10px; font-size:12px; z-index:30; display:none; min-width:120px; }
 .tooltip .tt-t { font-weight:700; margin-bottom:4px; }
 .tooltip .row { display:flex; align-items:center; gap:6px; justify-content:space-between; }
 .tooltip .row b { font-variant-numeric: tabular-nums; }
@@ -86,6 +97,16 @@ tr.rowpend td:first-child { box-shadow: inset 3px 0 0 var(--s4); }
 .cqprog { display:inline-flex; align-items:center; gap:8px; }
 .cqprog .bar { width: 130px; height: 8px; border-radius: 5px; background: var(--grid); overflow: hidden; display:inline-block; }
 .cqprog .bar > i { display:block; height: 100%; background: var(--good); }
+/* 責任歸咎總覽：單位 KPI 卡（左色條＋大數字＋走勢） */
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:10px; margin:10px 0 6px; }
+.kpi { position:relative; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px 9px 16px; overflow:hidden; }
+.kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--kc,var(--accent)); }
+.kpi .k { font-size:12px; color:var(--muted); font-weight:600; }
+.kpi .v { font-size:25px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; line-height:1.15; }
+.kpi .v small { font-size:12px; color:var(--muted); font-weight:600; letter-spacing:0; margin-left:2px; }
+.kpi .d { font-size:11.5px; color:var(--ink-2); margin-top:1px; font-variant-numeric:tabular-nums; }
+.kpi .d .up { color:var(--bad); font-weight:700; } .kpi .d .down { color:var(--good); font-weight:700; }
+.kpi svg.spark { position:absolute; right:10px; top:12px; opacity:.85; }
 /* 可收合面板 */
 h3.collh { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 7px; }
 h3.collh .car { transition: transform .15s; color: var(--muted); font-size: 11px; display: inline-block; }
@@ -152,6 +173,10 @@ svg text { font-family: inherit; }
   header.top .seg { order:5; width:100%; display:flex; }
   header.top .seg button { flex:1; padding:8px 4px; font-size:12px; }
   .cards { grid-template-columns: 1fr 1fr; gap:8px; }
+  .kpis { grid-template-columns: 1fr 1fr; gap:8px; }
+  .kpi .v { font-size:21px; }
+  .kpi svg.spark { display:none; }
+  .cqwrap { max-height: 68vh; }
   .card { padding:11px 12px; border-radius:10px; }
   .card .v { font-size:20px; }
   .card .k { font-size:11px; }
@@ -760,6 +785,19 @@ function renderChQuery() {
       </div>
     </div>
     <div class="panel">
+      <h3 class="collh" data-coll="attr"><span class="car">▾</span>⚖️ 責任歸咎總覽（各單位＋外包公司）</h3>
+      <div data-body="attr">
+        <div class="hint">彰化件依責任單位（發轉／到轉／冷鏈／籠車）統計歸咎，外包公司（信林／有根／丞閎）依籠車回覆歸咎；供主管快速掌握哪個單位、哪家公司責任最多。</div>
+        <div class="controls" style="margin:8px 0;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px">區間 <input type="date" id="arFrom"> ～ <input type="date" id="arTo"></label>
+          <div class="seg" id="arQuick"><button class="on" data-q="all">8/11 起累計</button><button data-q="week">本週</button><button data-q="month">本月</button></div>
+          <button class="btn ghost" onclick="loadAttr(true)">🔄 重新統計</button>
+          <button class="btn ghost" onclick="exportAttrExcel()">📤 匯出 Excel</button>
+        </div>
+        <div id="attrBox" class="loading">載入中…</div>
+      </div>
+    </div>
+    <div class="panel">
       <h3 class="collh" data-coll="cage"><span class="car">▾</span>🧱 籠車疊板籠錯誤 各線累計</h3>
       <div data-body="cage">
         <div class="hint">統計籠車單位回覆中的籠位代碼（A1～A6、B1～B6）：「疊籠板錯誤」與「RJ人工分貨疏失」計入各線，一筆寫兩個代碼（如 A3A6）則兩線各計 1 件；外包公司依回覆內標示的公司名統計（涵蓋籠車所有回覆）。</div>
@@ -785,7 +823,7 @@ function renderChQuery() {
     queryChq(); loadPivot();
   });
   // 可收合面板：流向分析/熱點圖每次載入一律收合（點標題展開）；樞紐分析記住上次狀態
-  const COLL_DEF = { pivot: "0", cage: "0" };
+  const COLL_DEF = { pivot: "0", attr: "0", cage: "0" };
   const ALWAYS_CLOSED = [];
   el.querySelectorAll("h3.collh").forEach(h => {
     const k = h.dataset.coll;
@@ -804,6 +842,8 @@ function renderChQuery() {
   buildDayChips();
   queryChq();
   loadPivot();
+  initAttrControls();
+  loadAttr();
   initCageControls();
   loadCage();
 }
@@ -1352,6 +1392,142 @@ function renderPivot() {
     dr.onclick = tableClick;
   }));
 }
+// ---------- 責任歸咎總覽（各單位＋外包公司，供主管報告） ----------
+let attrData = null;
+const AU_PEND = "待判定";
+const unitOf = r => r.resp_unit || AU_PEND;
+const dShift = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`; };
+function initAttrControls() {
+  const f = document.getElementById("arFrom"), t = document.getElementById("arTo");
+  if (!f) return;
+  const r = cageRangeOf("all"); f.value = r.from; t.value = r.to;
+  const setQuick = q => document.querySelectorAll("#arQuick button").forEach(b => b.classList.toggle("on", b.dataset.q === q));
+  document.getElementById("arQuick").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const rr = cageRangeOf(b.dataset.q); f.value = rr.from; t.value = rr.to; setQuick(b.dataset.q); loadAttr();
+  });
+  [f, t].forEach(x => x.addEventListener("change", () => { setQuick(""); loadAttr(); }));
+}
+async function loadAttr(force) {
+  const box = document.getElementById("attrBox");
+  if (!box) return;
+  const from = document.getElementById("arFrom").value || CHQ_START;
+  const to = document.getElementById("arTo").value || latestDataDate() || "2100-12-31";
+  const key = from + "|" + to;
+  if (!force && attrData && attrData.key === key) { renderAttr(); return; }
+  box.className = "loading"; box.textContent = "載入資料…";
+  try {
+    const { rows } = await fetchAllDetails({ resp_station: "彰化(含籠車)", date_from: from, date_to: to },
+      (n, t2) => box.textContent = `載入資料… ${n}/${t2}`);
+    // 前一段同長度區間（KPI 卡增減比較）；區間太長就略過
+    let prevRows = null;
+    const len = Math.round((new Date(to + "T00:00:00") - new Date(from + "T00:00:00")) / 86400000) + 1;
+    const pFrom = dShift(from, -len), pTo = dShift(from, -1);
+    if (pTo >= CHQ_START && len <= 62) {
+      try { prevRows = (await fetchAllDetails({ resp_station: "彰化(含籠車)", date_from: (pFrom < CHQ_START ? CHQ_START : pFrom), date_to: pTo })).rows; } catch {}
+    }
+    attrData = { key, from, to, rows, prevRows };
+    renderAttr();
+  } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
+}
+function attrCalc(S) {
+  const dates = [...new Set(S.rows.map(r => r.send_date))].sort();
+  const seenU = [...new Set(S.rows.map(unitOf))];
+  const units = [...UNIT_OPTS.filter(u => seenU.includes(u)), ...(seenU.includes(AU_PEND) ? [AU_PEND] : [])];
+  const cnt = {}, dTot = {};
+  S.rows.forEach(r => { const u = unitOf(r); cnt[u + "|" + r.send_date] = (cnt[u + "|" + r.send_date] || 0) + 1; cnt[u] = (cnt[u] || 0) + 1; });
+  dates.forEach(d => dTot[d] = units.reduce((s, u) => s + (cnt[u + "|" + d] || 0), 0));
+  const rank = {};
+  UNIT_OPTS.filter(u => cnt[u]).sort((a, b) => (cnt[b] || 0) - (cnt[a] || 0)).forEach((u, i) => rank[u] = i + 1);
+  return { dates, units, cnt, dTot, rank, total: S.rows.length };
+}
+function renderAttr() {
+  const box = document.getElementById("attrBox");
+  if (!box || !attrData) return;
+  const S = attrData; box.className = "";
+  if (!S.rows.length) { box.innerHTML = `<div class="hint">此區間沒有彰化件。</div>`; return; }
+  const { dates, units, cnt, dTot, rank, total } = attrCalc(S);
+  const prevCnt = {};
+  if (S.prevRows) S.prevRows.forEach(r => { const u = unitOf(r); prevCnt[u] = (prevCnt[u] || 0) + 1; });
+  // KPI 卡：件數＋占比＋前期增減＋迷你走勢
+  const kpis = units.map(u => {
+    const n = cnt[u] || 0, color = UNIT_COLOR[u] ? `var(${UNIT_COLOR[u]})` : "var(--muted)";
+    let delta = "";
+    if (S.prevRows && u !== AU_PEND) {
+      const p = prevCnt[u] || 0, diff = n - p;
+      delta = diff === 0 ? `持平（前期 ${p}）` : diff > 0 ? `<span class="up">▲ ${diff}</span>（前期 ${p}）` : `<span class="down">▼ ${-diff}</span>（前期 ${p}）`;
+    }
+    const days = dates.map(d => cnt[u + "|" + d] || 0);
+    let spark = "";
+    if (dates.length >= 3) {
+      const mx = Math.max(...days, 1), W = 84, Hh = 26;
+      const pts = days.map((v, i) => `${(i / (days.length - 1) * W).toFixed(1)},${(Hh - 3 - v / mx * (Hh - 6)).toFixed(1)}`).join(" ");
+      spark = `<svg class="spark" width="${W}" height="${Hh}" viewBox="0 0 ${W} ${Hh}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+    }
+    return `<div class="kpi" style="--kc:${color}">${spark}<div class="k">${esc(u)}${rank[u] === 1 ? " 🔺" : ""}</div><div class="v">${fmtN(n)}<small>件・${pct(n, total)}</small></div><div class="d">${delta}</div></div>`;
+  }).join("");
+  // 單位 × 日期 累計表
+  let mt = `<table class="tbl pvmx"><thead><tr><th>責任單位</th>${dates.map(d => `<th class="num">${md(d)}</th>`).join("")}<th class="num">累計</th><th class="num">占比</th><th class="num">排名</th></tr></thead><tbody>`;
+  units.forEach(u => {
+    const n = cnt[u] || 0, top = rank[u] === 1;
+    const dot = UNIT_COLOR[u] ? `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(${UNIT_COLOR[u]});margin-right:6px"></span>` : "";
+    mt += `<tr${top ? ' style="color:var(--bad);font-weight:700"' : (u === AU_PEND ? ' style="color:var(--muted)"' : "")}><td>${dot}${esc(u)}${top ? " 🔺" : ""}</td>${dates.map(d => `<td class="num">${cnt[u + "|" + d] || "·"}</td>`).join("")}<td class="num"><b>${n}</b></td><td class="num">${pct(n, total)}</td><td class="num">${rank[u] || "—"}</td></tr>`;
+  });
+  mt += `<tr><td><b>合計</b></td>${dates.map(d => `<td class="num"><b>${dTot[d]}</b></td>`).join("")}<td class="num"><b>${total}</b></td><td class="num">100%</td><td class="num"></td></tr></tbody></table>`;
+  // 外包公司歸咎（籠車回覆）
+  const cg = cageStats(S.rows.filter(r => r.resp_unit === "籠車"));
+  let coHtml = `<div class="hint">籠車件 ${fmtN(S.rows.filter(r => r.resp_unit === "籠車").length)} 筆・已回覆 ${fmtN(cg.items.length)} 筆（依回覆內標示的公司名歸咎）</div>`;
+  if (cg.items.length) {
+    coHtml += `<div class="tblwrap"><table class="tbl pvmx"><thead><tr><th>外包公司</th>${CAGE_TYPES.map(t => `<th class="num">${t}</th>`).join("")}<th class="num">合計</th><th class="num">占比</th></tr></thead><tbody>` +
+      cg.cos.map(c => `<tr><td><b>${esc(c)}</b></td>${CAGE_TYPES.map(t => `<td class="num">${cg.coCnt[c + "|" + t] || "·"}</td>`).join("")}<td class="num"><b>${cg.coCnt[c + "|all"] || 0}</b></td><td class="num">${pct(cg.coCnt[c + "|all"] || 0, cg.items.length)}</td></tr>`).join("") +
+      `<tr><td><b>合計</b></td>${CAGE_TYPES.map(t => `<td class="num"><b>${cg.items.filter(i => i._t === t).length || "·"}</b></td>`).join("")}<td class="num"><b>${cg.items.length}</b></td><td class="num">100%</td></tr></tbody></table></div>`;
+  } else coHtml += `<div class="hint">此區間籠車尚無回覆。</div>`;
+  box.innerHTML = `
+    <div class="hint">區間 ${md(S.from)}～${md(S.to)}　彰化件共 <b>${fmtN(total)}</b> 筆（🔺＝件數最多；增減為與前一段同長度區間比較）</div>
+    <div class="kpis">${kpis}</div>
+    <h3 style="font-size:13px;margin:12px 0 6px">單位 × 日期 累計</h3><div class="tblwrap">${mt}</div>
+    <h3 style="font-size:13px;margin:14px 0 6px">外包公司歸咎（信林／有根／丞閎，依籠車回覆）</h3>${coHtml}`;
+}
+function exportAttrExcel() {
+  const msg = document.getElementById("unitMsg");
+  if (!attrData || !attrData.rows.length) { msg.textContent = "責任歸咎尚無資料可匯出"; return; }
+  const S = attrData;
+  const BR = { style: "thin", color: { rgb: "9AA4B0" } };
+  const X = (v, o = {}) => ({ v: v == null ? "" : v, t: typeof v === "number" ? "n" : "s", s: {
+    font: { bold: true, sz: o.sz || 11, name: "微軟正黑體", ...(o.color ? { color: { rgb: o.color } } : {}) },
+    alignment: { horizontal: o.left ? "left" : "center", vertical: "center" },
+    ...(o.fill ? { fill: { fgColor: { rgb: o.fill } } } : {}),
+    border: { top: BR, bottom: BR, left: BR, right: BR } } });
+  const H = v => X(v, { fill: "1F4E79", color: "FFFFFF" });
+  const { dates, units, cnt, dTot, rank, total } = attrCalc(S);
+  const wb = XLSX.utils.book_new();
+  const a1 = [[X(`彰化轉運中心 責任歸咎總覽（${S.from}～${S.to}）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })],
+    [X(`彰化件共 ${total} 筆（發轉／到轉／冷鏈／籠車）`, { sz: 12 })], [],
+    [H("責任單位"), ...dates.map(d => H(md(d))), H("累計"), H("占比"), H("排名")]];
+  units.forEach(u => {
+    const top = rank[u] === 1, o = top ? { fill: "FDE2E2", color: "B42318" } : {};
+    a1.push([X(u + (top ? " ▲" : ""), { ...o, left: true }), ...dates.map(d => X(cnt[u + "|" + d] || 0, o)), X(cnt[u] || 0, { ...o, fill: o.fill || "F2F2F2" }), X(pct(cnt[u] || 0, total), o), X(rank[u] ?? "—", o)]);
+  });
+  a1.push([X("合計", { fill: "DCE9FA", left: true }), ...dates.map(d => X(dTot[d], { fill: "DCE9FA" })), X(total, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" }), X("", { fill: "DCE9FA" })]);
+  const ws1 = XLSX.utils.aoa_to_sheet(a1);
+  ws1["!cols"] = [{ wch: 12 }, ...dates.map(() => ({ wch: 7 })), { wch: 8 }, { wch: 8 }, { wch: 7 }];
+  ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...units.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: dates.length + 3 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: dates.length + 3 } }];
+  XLSX.utils.book_append_sheet(wb, ws1, "單位歸咎");
+  const cg = cageStats(S.rows.filter(r => r.resp_unit === "籠車"));
+  const a2 = [[X(`外包公司歸咎（${S.from}～${S.to}，籠車回覆 ${cg.items.length} 筆）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })], [],
+    [H("外包公司"), ...CAGE_TYPES.map(H), H("合計"), H("占比")]];
+  cg.cos.forEach(c => a2.push([X(c, { left: true }), ...CAGE_TYPES.map(t => X(cg.coCnt[c + "|" + t] || 0)), X(cg.coCnt[c + "|all"] || 0, { fill: "F2F2F2" }), X(pct(cg.coCnt[c + "|all"] || 0, cg.items.length))]));
+  a2.push([X("合計", { fill: "DCE9FA", left: true }), ...CAGE_TYPES.map(t => X(cg.items.filter(i => i._t === t).length, { fill: "DCE9FA" })), X(cg.items.length, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" })]);
+  const ws2 = XLSX.utils.aoa_to_sheet(a2);
+  ws2["!cols"] = [{ wch: 12 }, ...CAGE_TYPES.map(() => ({ wch: 15 })), { wch: 8 }, { wch: 8 }];
+  ws2["!rows"] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 26 }, ...cg.cos.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  ws2["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: CAGE_TYPES.length + 2 } }];
+  XLSX.utils.book_append_sheet(wb, ws2, "外包公司歸咎");
+  const fname = `責任歸咎_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  msg.innerHTML = `<span class="msg-ok">✅ 已匯出 ${fname}</span>`;
+}
 // ---------- 籠車疊板籠錯誤 各線累計（主管用：哪一線錯最多＋外包公司） ----------
 const CAGE_LINES = ["A1", "A2", "A3", "A4", "A5", "A6", "B1", "B2", "B3", "B4", "B5", "B6"];
 const CAGE_TYPES = ["疊籠板錯誤", "RJ人工分貨疏失", "誤上櫃", "其他"];
@@ -1753,6 +1929,7 @@ async function importFillFile(file) {
     chqState.offset = 0;
     queryChq();
     loadPivot(true);
+    loadAttr(true);
     loadCage(true);
   } catch (e) {
     msg.innerHTML = `<span class="msg-err">匯入失敗：${esc(e.message)}</span>`;
