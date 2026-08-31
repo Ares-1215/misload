@@ -817,6 +817,10 @@ function renderChQuery() {
       <h3 class="collh" data-coll="pivot"><span class="car">▾</span>📊 回覆樞紐分析</h3>
       <div data-body="pivot">
         <div class="hint">各單位回傳的原因／改善方式，依關鍵字即時自動分類統計（填寫或匯入後立即更新）。</div>
+        <div class="controls" style="margin:4px 0 8px;align-items:center">
+          <div class="seg" id="pvQuick"><button class="on" data-q="follow">跟隨查件日期</button><button data-q="month">本月</button><button data-q="lastmonth">上月</button><button data-q="all">全部</button></div>
+          <select id="pvMonth" title="跳到某個月"><option value="">月份…</option></select>
+        </div>
         <div id="pivotBox" class="loading">載入中…</div>
       </div>
     </div>
@@ -851,6 +855,17 @@ function renderChQuery() {
         <div id="cageBox" class="loading">載入中…</div>
       </div>
     </div>
+    <div class="panel">
+      <h3 class="collh" data-coll="year"><span class="car">▾</span>📈 年度儀表（12 個月走勢）</h3>
+      <div data-body="year">
+        <div class="hint">全年各月的單位責任與外包公司歸咎走勢，一眼看出趨勢與異常月份；展開面板才會載入。</div>
+        <div class="controls" style="margin:6px 0;align-items:center">
+          <select id="yrSel"></select>
+          <button class="btn ghost" onclick="loadYear(true)">🔄 重新載入</button>
+        </div>
+        <div id="yearBox" class="loading">展開面板後載入…</div>
+      </div>
+    </div>
     </div>`;
   document.getElementById("cqTbl").addEventListener("click", tableClick);
   document.getElementById("fillFile").addEventListener("change", e => {
@@ -858,7 +873,7 @@ function renderChQuery() {
   });
   initCalBar();
   // 可收合面板：流向分析/熱點圖每次載入一律收合（點標題展開）；樞紐分析記住上次狀態
-  const COLL_DEF = { pivot: "0", attr: "0", cage: "0" };
+  const COLL_DEF = { pivot: "0", attr: "0", cage: "0", year: "1" };   // 年度儀表預設收合、展開才載入
   const ALWAYS_CLOSED = [];
   el.querySelectorAll("h3.collh").forEach(h => {
     const k = h.dataset.coll;
@@ -871,16 +886,20 @@ function renderChQuery() {
       h.classList.toggle("closed", c);
       body.style.display = c ? "none" : "";
       if (!ALWAYS_CLOSED.includes(k)) localStorage.setItem("ml_coll_" + k, c ? "1" : "0");
+      if (k === "year" && !c) loadYear();   // 年度儀表：展開才載入
     });
   });
   if (!isAdmin) document.getElementById("impBtn").style.display = "none";
   buildDayChips();
   queryChq();
+  initPivotCtl();
   loadPivot();
   initAttrControls();
   loadAttr();
   initCageControls();
   loadCage();
+  document.getElementById("yrSel").addEventListener("change", renderYear);
+  if ((localStorage.getItem("ml_coll_year") ?? "1") === "0") loadYear();
 }
 // ---------- 自製日曆選擇器（有資料日期亮起＋件數；無資料反灰不可點） ----------
 async function ensureDates(force) {
@@ -1440,15 +1459,34 @@ function renderRjBox(items) {
         <table class="tbl">${slotList.length ? slotList.map(([s, n]) => `<tr><td>${esc(s)}</td><td class="num"><b>${n}</b></td></tr>`).join("") : `<tr><td class="hint">回覆未標記籠位</td></tr>`}</table></div>
     </div>`;
 }
-let pivotRows = null, pivotKey = null;
+let pivotRows = null, pivotKey = null, pvRange = null;   // pvRange=null 跟隨查件日期
+function initPivotCtl() {
+  const q = document.getElementById("pvQuick");
+  if (!q) return;
+  const mSel = document.getElementById("pvMonth");
+  const setOn = k => q.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.q === k));
+  q.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const k = b.dataset.q;
+    pvRange = k === "follow" ? null : { ...cageRangeOf(k), label: b.textContent };
+    setOn(k); mSel.value = ""; loadPivot();
+  });
+  fillMonthSel("pvMonth");
+  mSel.addEventListener("change", () => {
+    if (!mSel.value) return;
+    pvRange = { ...monthRange(mSel.value), label: mSel.value.replace("-", "/") };
+    setOn(""); loadPivot();
+  });
+}
 async function loadPivot(force) {
   const box = document.getElementById("pivotBox");
   if (!box) return;
-  const key = chqDay || "all";
+  const key = pvRange ? "r:" + pvRange.from + "|" + pvRange.to : (chqDay || "all");
   if (!force && pivotKey === key && pivotRows) { renderPivot(); return; }
   try {
-    const params = { resp_station: "彰化(含籠車)", date_from: chqDay || CHQ_START };
-    if (chqDay) params.date_to = chqDay;
+    const params = { resp_station: "彰化(含籠車)" };
+    if (pvRange) { params.date_from = pvRange.from; params.date_to = pvRange.to; }
+    else { params.date_from = chqDay || CHQ_START; if (chqDay) params.date_to = chqDay; }
     const { rows } = await fetchAllDetails(params, (n, t) => { box.textContent = `載入回覆資料… ${n}/${t}`; });
     pivotRows = rows; pivotKey = key;
     renderPivot();
@@ -1489,7 +1527,7 @@ function renderPivot() {
   });
   mx += `<tr><td><b>合計</b></td>${units.map(u => `<td class="num"><b>${items.filter(i => i._u === u).length}</b></td>`).join("")}<td class="num"><b>${items.length}</b></td></tr></tbody></table>`;
   box.innerHTML = `
-    <div class="hint">已回覆 ${fmtN(items.length)} 筆（${chqDay ? "發送日 " + md(chqDay) : "全部日期"}）・關鍵字自動分類</div>
+    <div class="hint">已回覆 ${fmtN(items.length)} 筆（${pvRange ? "區間 " + md(pvRange.from) + "～" + md(pvRange.to) : (chqDay ? "發送日 " + md(chqDay) : "全部日期")}）・關鍵字自動分類</div>
     <div style="margin:8px 0 14px">${stack}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
       <div><h3 style="font-size:13px;margin-bottom:6px">分類 × 單位 樞紐矩陣（點數字看明細）</h3><div class="tblwrap">${mx}</div><div id="pv-drill" style="margin-top:8px"></div></div>
@@ -1588,14 +1626,20 @@ async function loadAttr(force) {
   try {
     const { rows } = await fetchAllDetails({ resp_station: "彰化(含籠車)", date_from: from, date_to: to },
       (n, t2) => box.textContent = `載入資料… ${n}/${t2}`);
-    // 前一段同長度區間（KPI 卡增減比較）；區間太長就略過
-    let prevRows = null;
-    const len = Math.round((new Date(to + "T00:00:00") - new Date(from + "T00:00:00")) / 86400000) + 1;
-    const pFrom = dShift(from, -len), pTo = dShift(from, -1);
-    if (pTo >= CHQ_START && len <= 62) {
+    // KPI 增減比較：整月區間→跟「上一個月」比（月對月）；其他→前一段同長度區間；太長略過
+    let prevRows = null, prevLabel = "前期", pFrom = null, pTo = null;
+    if (from.slice(0, 7) === to.slice(0, 7)) {
+      const [y, m] = from.slice(0, 7).split("-").map(Number);
+      const pr = monthRange(m === 1 ? `${y - 1}-12` : `${y}-${pad2(m - 1)}`);
+      pFrom = pr.from; pTo = pr.to; prevLabel = "上月";
+    } else {
+      const len = Math.round((new Date(to + "T00:00:00") - new Date(from + "T00:00:00")) / 86400000) + 1;
+      if (len <= 62) { pFrom = dShift(from, -len); pTo = dShift(from, -1); }
+    }
+    if (pFrom && pTo >= CHQ_START) {
       try { prevRows = (await fetchAllDetails({ resp_station: "彰化(含籠車)", date_from: (pFrom < CHQ_START ? CHQ_START : pFrom), date_to: pTo })).rows; } catch {}
     }
-    attrData = { key, from, to, rows, prevRows };
+    attrData = { key, from, to, rows, prevRows, prevLabel };
     renderAttr();
   } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
 }
@@ -1624,7 +1668,8 @@ function renderAttr() {
     let delta = "";
     if (S.prevRows && u !== AU_PEND) {
       const p = prevCnt[u] || 0, diff = n - p;
-      delta = diff === 0 ? `持平（前期 ${p}）` : diff > 0 ? `<span class="up">▲ ${diff}</span>（前期 ${p}）` : `<span class="down">▼ ${-diff}</span>（前期 ${p}）`;
+      const pl = S.prevLabel || "前期";
+      delta = diff === 0 ? `持平（${pl} ${p}）` : diff > 0 ? `<span class="up">▲ ${diff}</span> vs ${pl} ${p}` : `<span class="down">▼ ${-diff}</span> vs ${pl} ${p}`;
     }
     const days = dates.map(d => cnt[u + "|" + d] || 0);
     let spark = "";
@@ -1754,6 +1799,83 @@ function exportMonthlyReport() {
     : `彰化轉運中心誤裝訂報表_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
   XLSX.writeFile(wb, fname);
   msg.innerHTML = `<span class="msg-ok">✅ 已產出 ${fname}（${wb.SheetNames.length} 個工作表）</span>`;
+}
+// ---------- 年度儀表：12 個月的單位／外包公司走勢 ----------
+let yearData = null;
+const CO_COLOR = { "信林": "--s1", "有根": "--s3", "丞閎": "--s7" };
+function yearLineSVG(labels, series) {
+  const W = 760, H = 220, P = { l: 36, r: 12, t: 10, b: 24 };
+  const mx = Math.max(1, ...series.flatMap(s => s.vals));
+  const x = i => P.l + (labels.length === 1 ? 0 : i / (labels.length - 1) * (W - P.l - P.r));
+  const y = v => H - P.b - v / mx * (H - P.t - P.b);
+  let grid = "";
+  for (let k = 0; k <= 4; k++) {
+    const v = mx * k / 4;
+    grid += `<line x1="${P.l}" y1="${y(v)}" x2="${W - P.r}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/><text x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(v)}</text>`;
+  }
+  const xt = labels.map((lb, i) => `<text x="${x(i).toFixed(1)}" y="${H - 7}" text-anchor="middle" font-size="10" fill="var(--muted)">${lb}</text>`).join("");
+  const paths = series.map(s => {
+    const pts = s.vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const dots = s.vals.map((v, i) => v ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.2" fill="var(${s.color})"><title>${s.name}・${labels[i]}：${v} 筆</title></circle>` : "").join("");
+    return `<polyline points="${pts}" fill="none" stroke="var(${s.color})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` + dots;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img">${grid}${xt}${paths}</svg>`;
+}
+function yearChartBlock(title, series, labels) {
+  const leg = `<div class="legend">${series.map(s => `<span class="it"><span class="sw" style="background:var(${s.color})"></span>${s.name}</span>`).join("")}</div>`;
+  return `<div><h3 style="font-size:13px;margin-bottom:4px">${title}</h3>${leg}${yearLineSVG(labels, series)}</div>`;
+}
+async function loadYear(force) {
+  const box = document.getElementById("yearBox");
+  if (!box) return;
+  if (yearData && !force) { renderYear(); return; }
+  box.className = "loading"; box.textContent = "載入年度資料…";
+  try {
+    const { rows } = await fetchAllDetails({ resp_station: "彰化(含籠車)", date_from: CHQ_START, date_to: latestDataDate() || "2100-12-31" },
+      (n, t) => box.textContent = `載入年度資料… ${n}/${t}`);
+    yearData = { rows };
+    const sel = document.getElementById("yrSel");
+    const years = [...new Set(rows.map(r => r.send_date.slice(0, 4)))].sort().reverse();
+    const keep = sel.value;
+    sel.innerHTML = years.map(y => `<option value="${y}">${y} 年</option>`).join("");
+    if (years.includes(keep)) sel.value = keep;
+    renderYear();
+  } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
+}
+function renderYear() {
+  const box = document.getElementById("yearBox");
+  if (!box || !yearData) return;
+  box.className = "";
+  const yr = document.getElementById("yrSel").value || (latestDataDate() || CHQ_START).slice(0, 4);
+  const rows = yearData.rows.filter(r => r.send_date.startsWith(yr));
+  if (!rows.length) { box.innerHTML = `<div class="hint">${yr} 年沒有資料。</div>`; return; }
+  const months = Array.from({ length: 12 }, (_, i) => `${yr}-${pad2(i + 1)}`);
+  const labels = months.map((m, i) => `${i + 1}月`);
+  const uCnt = {}, coCnt2 = {};
+  rows.forEach(r => {
+    const m = r.send_date.slice(0, 7);
+    const u = r.resp_unit || AU_PEND;
+    uCnt[u + "|" + m] = (uCnt[u + "|" + m] || 0) + 1;
+    const t = ((r.reply || "") + " " + (r.improve || "")).trim();
+    if (t) { const co = RJ_COMPANIES.find(c => t.includes(c)); if (co) coCnt2[co + "|" + m] = (coCnt2[co + "|" + m] || 0) + 1; }
+  });
+  const uSeries = UNIT_OPTS.map(u => ({ name: u, color: UNIT_COLOR[u], vals: months.map(m => uCnt[u + "|" + m] || 0) }));
+  const coSeries = RJ_COMPANIES.map(c => ({ name: c, color: CO_COLOR[c], vals: months.map(m => coCnt2[c + "|" + m] || 0) })).filter(s => s.vals.some(v => v));
+  // 月 × 單位 數字表（圖的資料表版）
+  const activeM = months.filter(m => UNIT_OPTS.some(u => uCnt[u + "|" + m]) || uCnt[AU_PEND + "|" + m]);
+  let tbl = `<table class="tbl pvmx"><thead><tr><th>月份</th>${UNIT_OPTS.map(u => `<th class="num">${u}</th>`).join("")}<th class="num">合計</th></tr></thead><tbody>`;
+  activeM.forEach(m => {
+    const tot = UNIT_OPTS.reduce((s, u) => s + (uCnt[u + "|" + m] || 0), 0) + (uCnt[AU_PEND + "|" + m] || 0);
+    tbl += `<tr><td>${m.replace("-", "/")}</td>${UNIT_OPTS.map(u => `<td class="num">${uCnt[u + "|" + m] || "·"}</td>`).join("")}<td class="num"><b>${tot}</b></td></tr>`;
+  });
+  tbl += `</tbody></table>`;
+  box.innerHTML = `
+    <div class="hint">${yr} 年共 ${fmtN(rows.length)} 筆彰化件（單位走勢＝全部件；外包走勢＝回覆有標示公司名的件）</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;margin-top:6px">
+      ${yearChartBlock("各單位 月走勢", uSeries, labels)}
+      ${coSeries.length ? yearChartBlock("外包公司歸咎 月走勢", coSeries, labels) : ""}
+    </div>
+    <h3 style="font-size:13px;margin:12px 0 6px">月 × 單位 數字表</h3><div class="tblwrap">${tbl}</div>`;
 }
 // ---------- 籠車疊板籠錯誤 各線累計（主管用：哪一線錯最多＋外包公司） ----------
 const CAGE_LINES = ["A1", "A2", "A3", "A4", "A5", "A6", "B1", "B2", "B3", "B4", "B5", "B6"];
