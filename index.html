@@ -1628,7 +1628,8 @@ async function loadAttr(force) {
       (n, t2) => box.textContent = `載入資料… ${n}/${t2}`);
     // KPI 增減比較：整月區間→跟「上一個月」比（月對月）；其他→前一段同長度區間；太長略過
     let prevRows = null, prevLabel = "前期", pFrom = null, pTo = null;
-    if (from.slice(0, 7) === to.slice(0, 7)) {
+    const mr = monthRange(from.slice(0, 7));
+    if (from.slice(0, 7) === to.slice(0, 7) && from === mr.from && to === mr.to) {   // 只有「整月區間」才做月對月
       const [y, m] = from.slice(0, 7).split("-").map(Number);
       const pr = monthRange(m === 1 ? `${y - 1}-12` : `${y}-${pad2(m - 1)}`);
       pFrom = pr.from; pTo = pr.to; prevLabel = "上月";
