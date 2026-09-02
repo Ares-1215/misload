@@ -127,6 +127,16 @@ tr.rowpend td:first-child { box-shadow: inset 3px 0 0 var(--s4); }
   .calpop { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:min(332px, calc(100vw - 28px)); }
   .calgrid .day { height:44px; font-size:14px; }
 }
+/* 發轉滑道分析：月台平面熱度圖 */
+.fzmap { display:flex; gap:3px; overflow-x:auto; padding:6px 2px 8px; -webkit-overflow-scrolling:touch; }
+.fzmap .ch { flex:0 0 40px; border:1px solid var(--grid); border-radius:7px; padding:4px 2px 5px; text-align:center; cursor:pointer; background:var(--surface); transition:outline-color .15s, transform .1s; }
+.fzmap .ch:hover { transform:translateY(-1px); }
+.fzmap .ch.sel { outline:2px solid var(--accent); }
+.fzmap .ch .no { font-size:10.5px; color:var(--muted); font-weight:700; }
+.fzmap .ch .n { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.2; }
+.fzmap .ch .cds { font-size:8.5px; color:var(--ink-2); line-height:1.2; word-break:break-all; min-height:10px; }
+.fzbelt { height:8px; border-radius:4px; background:repeating-linear-gradient(90deg, var(--axis) 0 14px, var(--grid) 14px 28px); margin:2px 0 6px; }
+@media (max-width:640px){ .fzmap .ch { flex:0 0 36px; } }
 /* 責任歸咎總覽：單位 KPI 卡（左色條＋大數字＋走勢） */
 .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:10px; margin:10px 0 6px; }
 .kpi { position:relative; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 12px 9px 16px; overflow:hidden; }
@@ -856,6 +866,21 @@ function renderChQuery() {
       </div>
     </div>
     <div class="panel">
+      <h3 class="collh" data-coll="fz"><span class="car">▾</span>🛝 發轉滑道分析（哪條滑道誤上櫃最多）</h3>
+      <div data-body="fz">
+        <div class="hint">發轉責任件依「註區站對應的滑道」歸戶——貨被誤帶去哪個站，就是那條滑道的疊貨人員把不是自己號碼的貨上了櫃；提醒該滑道人員疊貨時核對號碼。對照表依你提供的月台滑道圖轉錄，標 <b>?</b> 的滑道請幫我確認。</div>
+        <div class="controls" style="margin:8px 0;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px">區間 <input type="date" id="fzFrom"> ～ <input type="date" id="fzTo"></label>
+          <div class="seg" id="fzQuick"><button class="on" data-q="all">全部</button><button data-q="week">本週</button><button data-q="month">本月</button><button data-q="lastmonth">上月</button></div>
+          <select id="fzMonth" title="跳到某個月"><option value="">月份…</option></select>
+          <label style="display:flex;align-items:center;gap:6px">檢視<div class="seg" id="fzGran"><button class="on" data-g="auto">自動</button><button data-g="day">日</button><button data-g="week">週</button><button data-g="month">月</button></div></label>
+          <button class="btn ghost" onclick="loadFz(true)">🔄 重新統計</button>
+          <button class="btn ghost" onclick="exportFzExcel()">📤 匯出 Excel</button>
+        </div>
+        <div id="fzBox" class="loading">載入中…</div>
+      </div>
+    </div>
+    <div class="panel">
       <h3 class="collh" data-coll="year"><span class="car">▾</span>📈 年度儀表（12 個月走勢）</h3>
       <div data-body="year">
         <div class="hint">全年各月的單位責任與外包公司歸咎走勢，一眼看出趨勢與異常月份；展開面板才會載入。</div>
@@ -873,7 +898,7 @@ function renderChQuery() {
   });
   initCalBar();
   // 可收合面板：流向分析/熱點圖每次載入一律收合（點標題展開）；樞紐分析記住上次狀態
-  const COLL_DEF = { pivot: "0", attr: "0", cage: "0", year: "1" };   // 年度儀表預設收合、展開才載入
+  const COLL_DEF = { pivot: "0", attr: "0", cage: "0", fz: "0", year: "1" };   // 年度儀表預設收合、展開才載入
   const ALWAYS_CLOSED = [];
   el.querySelectorAll("h3.collh").forEach(h => {
     const k = h.dataset.coll;
@@ -898,6 +923,8 @@ function renderChQuery() {
   loadAttr();
   initCageControls();
   loadCage();
+  initFzControls();
+  loadFz();
   document.getElementById("yrSel").addEventListener("change", renderYear);
   if ((localStorage.getItem("ml_coll_year") ?? "1") === "0") loadYear();
 }
@@ -1801,6 +1828,208 @@ function exportMonthlyReport() {
   XLSX.writeFile(wb, fname);
   msg.innerHTML = `<span class="msg-ok">✅ 已產出 ${fname}（${wb.SheetNames.length} 個工作表）</span>`;
 }
+// ---------- 發轉滑道分析：註區站→滑道歸戶（對照依使用者提供的月台滑道圖轉錄，q:1=待確認） ----------
+const FZ_LEGEND = { "1":"台北","2":"新莊","3":"桃園","4":"台中","5":"彰化","6":"嘉義","7":"永康","8":"前鎮","11":"基隆","13":"新店","14":"中和","15":"土城","21":"五股","23":"北投","24":"三重","25":"八里","26":"蘆洲","28":"跨境","31":"平鎮","32":"竹科","33":"關西","34":"苗栗","35":"中壢","36":"南崁","37":"龜山","38":"鶯歌","39":"竹北","41":"豐原","42":"烏日","43":"大里","44":"草屯","45":"大甲","46":"沙鹿","51":"和美","52":"員林","53":"田中","54":"埤頭","61":"斗六","62":"北港","63":"民雄","64":"虎尾","71":"新營","72":"麻豆","73":"台南","74":"安平","75":"安南","81":"岡山","82":"高雄","83":"鳳山","84":"屏東","85":"大社","86":"屏工","91":"羅東","92":"花蓮","93":"台東","101":"濱江","111":"汐止","112":"福德","123":"八堵","129":"澎空","130":"國陽","131":"信義","133":"永和","147":"古亭","153":"樹林","239":"淡水","263":"四季","305":"八德","315":"楊梅","317":"新富","321":"竹東","325":"新竹","335":"竹南","351":"壢森","359":"臨澎","365":"大園","398":"大家","402":"中工","412":"西屯","425":"五權","441":"埔里","449":"南投","466":"梧棲","609":"澎湖","626":"東石","805":"金門","825":"三民","838":"潮州","911":"宜蘭","921":"玉里","923":"光復" };
+const FZ_CHUTES = [
+  { no:"34", side:"top", codes:["921"], q:1 }, { no:"33", side:"top", codes:["7"] },
+  { no:"32", side:"top", codes:["92","923"], q:1 }, { no:"31", side:"top", codes:["75"] },
+  { no:"30", side:"top", codes:["73"] }, { no:"29", side:"top", codes:["74"] },
+  { no:"28", side:"top", codes:["825"] }, { no:"27", side:"top", codes:["82"] },
+  { no:"26", side:"top", codes:["81"] }, { no:"25", side:"top", codes:["86"] },
+  { no:"24", side:"top", codes:["84"] }, { no:"23", side:"top", codes:["83"] },
+  { no:"22", side:"top", codes:["838"] }, { no:"21", side:"top", codes:["85"] },
+  { no:"20", side:"top", codes:["8","805"], q:1 }, { no:"19", side:"top", codes:["72"] },
+  { no:"18", side:"top", codes:["71","466"], q:1 }, { no:"17", side:"top", codes:["412"] },
+  { no:"16", side:"top", codes:["46"] }, { no:"15", side:"top", codes:["45"] },
+  { no:"14", side:"top", codes:[], q:1 }, { no:"13", side:"top", codes:[], q:1 },
+  { no:"12", side:"top", codes:[], q:1 }, { no:"11", side:"top", codes:["6"], q:1 },
+  { no:"10", side:"top", codes:["609","626"], q:1 }, { no:"9", side:"top", codes:["64"] },
+  { no:"8", side:"top", codes:["63"] }, { no:"7", side:"top", codes:["42"] },
+  { no:"6", side:"top", codes:["5"], q:1 }, { no:"5", side:"top", codes:["888","999"], q:1 },
+  { no:"48", side:"bottom", codes:["3","37","317"], q:1 },
+  { no:"49", side:"bottom", codes:["31","315","35","36","365"], q:1 },
+  { no:"50", side:"bottom", codes:["911"] }, { no:"51", side:"bottom", codes:["93"] },
+  { no:"52", side:"bottom", codes:["91"] }, { no:"53", side:"bottom", codes:["41"] },
+  { no:"BU", side:"bottom", codes:[] },
+  { no:"55", side:"bottom", codes:["14","147"] }, { no:"56", side:"bottom", codes:["13","130"] },
+  { no:"57", side:"bottom", codes:["1"] }, { no:"58", side:"bottom", codes:["15"] },
+  { no:"59", side:"bottom", codes:["26","263"] }, { no:"60", side:"bottom", codes:["129","2","21","214"], q:1 },
+  { no:"61", side:"bottom", codes:["449"] }, { no:"62", side:"bottom", codes:["401","402"], q:1 },
+  { no:"63", side:"bottom", codes:["44"] },
+  { no:"64", side:"bottom", codes:["101","112","123","133","153","28"], q:1 },
+  { no:"65", side:"bottom", codes:["101","112","123","133","153","28"], q:1 },
+  { no:"66", side:"bottom", codes:["426"], q:1 }, { no:"67", side:"bottom", codes:["11"] },
+  { no:"68", side:"bottom", codes:["43"] }, { no:"69", side:"bottom", codes:["54"] },
+  { no:"70", side:"bottom", codes:["4"] }, { no:"71", side:"bottom", codes:["53"] },
+  { no:"72", side:"bottom", codes:["24"] }, { no:"73", side:"bottom", codes:["131"] },
+  { no:"74", side:"bottom", codes:["51"] }, { no:"75", side:"bottom", codes:["52"] },
+  { no:"76", side:"bottom", codes:["23"] }, { no:"77", side:"bottom", codes:["441"] },
+  { no:"78", side:"bottom", codes:["239","25","317"], q:1 },
+];
+const FZ_NOMAP = "無對應滑道";
+// 站名→滑道標籤（同站出現在多條滑道→合併標籤如 64/65）
+const FZ_ST2CH = (() => {
+  const m = {};
+  FZ_CHUTES.forEach(c => c.codes.forEach(cd => {
+    const nm = FZ_LEGEND[cd]; if (!nm) return;
+    (m[nm] = m[nm] || []).push(c.no);
+  }));
+  const out = {};
+  Object.entries(m).forEach(([nm, list]) => out[nm] = list.join("/"));
+  return out;
+})();
+const fzChuteOf = st => FZ_ST2CH[st] || FZ_NOMAP;
+const fzLabelOf = ch => {   // 滑道服務站所（顯示用）
+  const c = FZ_CHUTES.find(x => ch.split("/").includes(x.no));
+  return c ? c.codes.map(cd => FZ_LEGEND[cd] || cd).join("、") : "";
+};
+let fzData = null, fzGranSel = "auto", fzSelChute = null;
+function initFzControls() {
+  const f = document.getElementById("fzFrom"), t = document.getElementById("fzTo"), mSel = document.getElementById("fzMonth");
+  if (!f) return;
+  const r = cageRangeOf("all"); f.value = r.from; t.value = r.to;
+  const setQuick = q => document.querySelectorAll("#fzQuick button").forEach(b => b.classList.toggle("on", b.dataset.q === q));
+  document.getElementById("fzQuick").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const rr = cageRangeOf(b.dataset.q); f.value = rr.from; t.value = rr.to; setQuick(b.dataset.q); mSel.value = ""; loadFz();
+  });
+  [f, t].forEach(x => x.addEventListener("change", () => { setQuick(""); mSel.value = ""; loadFz(); }));
+  fillMonthSel("fzMonth");
+  mSel.addEventListener("change", () => {
+    if (!mSel.value) return;
+    const rr = monthRange(mSel.value); f.value = rr.from; t.value = rr.to; setQuick(""); loadFz();
+  });
+  document.getElementById("fzGran").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    fzGranSel = b.dataset.g;
+    document.querySelectorAll("#fzGran button").forEach(x => x.classList.toggle("on", x === b));
+    renderFz();
+  });
+}
+async function loadFz(force) {
+  const box = document.getElementById("fzBox");
+  if (!box) return;
+  const from = document.getElementById("fzFrom").value || CHQ_START;
+  const to = document.getElementById("fzTo").value || latestDataDate() || "2100-12-31";
+  const key = from + "|" + to;
+  if (!force && fzData && fzData.key === key) { renderFz(); return; }
+  box.className = "loading"; box.textContent = "載入發轉件…";
+  try {
+    const { rows } = await fetchAllDetails({ resp_station: "彰化(含籠車)", resp_units: ["發轉"], date_from: from, date_to: to },
+      (n, t2) => box.textContent = `載入發轉件… ${n}/${t2}`);
+    fzData = { key, from, to, rows };
+    fzSelChute = null;
+    renderFz();
+  } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
+}
+function renderFz() {
+  const box = document.getElementById("fzBox");
+  if (!box || !fzData) return;
+  const S = fzData; box.className = "";
+  if (!S.rows.length) { box.innerHTML = `<div class="hint">此區間沒有發轉責任件。</div>`; return; }
+  const items = S.rows.map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
+  const dates = [...new Set(items.map(r => r.send_date))].sort();
+  const cnt = {};
+  items.forEach(r => { cnt[r._ch + "|" + r.send_date] = (cnt[r._ch + "|" + r.send_date] || 0) + 1; cnt[r._ch] = (cnt[r._ch] || 0) + 1; });
+  // 滑道清單（合併標籤去重，依月台順序）＋無對應
+  const seenCh = new Set(items.map(i => i._ch));
+  // 依月台排列產生標籤序（合併滑道如 64/65 只出現一次）
+  const labels = [];
+  FZ_CHUTES.forEach(c => {
+    const lbs = [...new Set(c.codes.map(cd => FZ_LEGEND[cd]).filter(Boolean).map(nm => FZ_ST2CH[nm]))];
+    lbs.forEach(lb => { if (seenCh.has(lb) && !labels.includes(lb)) labels.push(lb); });
+  });
+  if (seenCh.has(FZ_NOMAP)) labels.push(FZ_NOMAP);
+  const mapped = items.filter(i => i._ch !== FZ_NOMAP).length;
+  const rank = {};
+  labels.filter(l => l !== FZ_NOMAP).sort((a, b) => (cnt[b] || 0) - (cnt[a] || 0)).forEach((l, i) => { if (cnt[l]) rank[l] = i + 1; });
+  const topCh = Object.keys(rank).find(l => rank[l] === 1);
+  // ── 月台平面熱度圖（上排 34→5、下排 48→78） ──
+  const mxc = Math.max(1, ...FZ_CHUTES.map(c => { const nm = FZ_LEGEND[c.codes[0]]; const lb = nm ? FZ_ST2CH[nm] : null; return lb ? (cnt[lb] || 0) : 0; }));
+  const cell = c => {
+    const nms = [...new Set(c.codes.map(cd => FZ_LEGEND[cd]).filter(Boolean))];
+    const lb = nms.length ? FZ_ST2CH[nms[0]] : null;
+    const n = lb ? (cnt[lb] || 0) : 0;
+    const heat = n ? `background:rgba(211,59,59,${(0.10 + 0.62 * n / mxc).toFixed(2)});` : "";
+    const sel = fzSelChute && lb === fzSelChute ? " sel" : "";
+    return `<div class="ch${sel}" data-ch="${lb || ""}" title="滑道 ${c.no}：${c.codes.map(cd => (FZ_LEGEND[cd] || cd)).join("、") || "（未設定）"}${c.q ? "（?待確認）" : ""}" style="${heat}">
+      <div class="no">${c.no}${c.q ? "?" : ""}</div><div class="n">${n || "·"}</div><div class="cds">${c.codes.join(" ") || "—"}</div></div>`;
+  };
+  const topRow = FZ_CHUTES.filter(c => c.side === "top").map(cell).join("");
+  const botRow = FZ_CHUTES.filter(c => c.side === "bottom").map(cell).join("");
+  // ── 滑道 × 期間 排行表 ──
+  const g = fzGranSel === "auto" ? autoGran(S.from, S.to) : fzGranSel;
+  const BC = bucketCols(dates, g);
+  const cv = (l, b) => BC.days(b).reduce((s, d) => s + (cnt[l + "|" + d] || 0), 0);
+  let mt = `<table class="tbl pvmx"><thead><tr><th>滑道</th><th>服務站所</th>${BC.bs.map(b => `<th class="num">${bucketLabel(b, g)}</th>`).join("")}<th class="num">累計</th><th class="num">占比</th><th class="num">排名</th></tr></thead><tbody>`;
+  labels.slice().sort((a, b) => (a === FZ_NOMAP) - (b === FZ_NOMAP) || (cnt[b] || 0) - (cnt[a] || 0)).forEach(l => {
+    const n = cnt[l] || 0, top = rank[l] === 1, isNo = l === FZ_NOMAP;
+    const st = top ? ' style="color:var(--bad);font-weight:700"' : (isNo ? ' style="color:var(--muted)"' : "");
+    mt += `<tr${st}><td>${esc(l)}${top ? " 🔺" : ""}</td><td style="white-space:normal;max-width:220px;font-size:12px">${isNo ? "註區站不在滑道圖上" : esc(fzLabelOf(l))}</td>${BC.bs.map(b => { const v = cv(l, b); return `<td class="num">${v || "·"}</td>`; }).join("")}<td class="num"><b>${n}</b></td><td class="num">${isNo ? "—" : pct(n, mapped)}</td><td class="num">${rank[l] || "—"}</td></tr>`;
+  });
+  mt += `</tbody></table>`;
+  box.innerHTML = `
+    <div class="hint">區間 ${md(S.from)}～${md(S.to)}　發轉件 <b>${fmtN(S.rows.length)}</b> 筆・可對應滑道 <b>${fmtN(mapped)}</b> 筆${topCh ? `・🔺 錯最多：<b style="color:var(--bad)">滑道 ${esc(topCh)}</b>（${esc(fzLabelOf(topCh))}，${cnt[topCh]} 筆）` : ""}</div>
+    <h3 style="font-size:13px;margin:10px 0 2px">月台平面熱度圖（顏色越紅＝誤上櫃越多，點滑道看明細）</h3>
+    <div class="fzmap">${topRow}</div><div class="fzbelt"></div><div class="fzmap">${botRow}</div>
+    <div id="fzDrill" style="margin:6px 0 10px"></div>
+    <h3 style="font-size:13px;margin:12px 0 6px">滑道 × ${GRAN_ZH[g]} 排行（由多到少）</h3><div class="tblwrap">${mt}</div>`;
+  box.querySelectorAll(".fzmap .ch").forEach(el => el.addEventListener("click", () => {
+    const lb = el.dataset.ch; if (!lb) return;
+    fzSelChute = fzSelChute === lb ? null : lb;
+    renderFz();
+    if (fzSelChute) {
+      const list = items.filter(i => i._ch === fzSelChute).sort((a, b) => b.send_date.localeCompare(a.send_date));
+      const dr = document.getElementById("fzDrill");
+      dr.innerHTML = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzLabelOf(fzSelChute))}）共 ${list.length} 筆（點貨號查件）：</div>
+        <div style="max-height:240px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.7">` +
+        list.map(i => `<div style="display:flex;gap:12px;padding:3px 0;align-items:baseline;border-bottom:1px solid var(--grid)">
+          <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
+          <a class="trackLink" data-no="${esc(i.tracking_no)}" style="cursor:pointer;color:var(--accent);flex-shrink:0;font-variant-numeric:tabular-nums;font-weight:600">${esc(i.tracking_no)}</a>
+          <span>誤流 <b>${esc(stName(i.note_station))}</b>　應到 ${esc(i.dest_station || "")}</span></div>`).join("") + `</div>`;
+      dr.onclick = tableClick;
+      dr.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }));
+}
+function exportFzExcel() {
+  const msg = document.getElementById("unitMsg");
+  if (!fzData || !fzData.rows.length) { msg.textContent = "發轉滑道分析尚無資料可匯出"; return; }
+  const S = fzData;
+  const { X, H } = xlHelpers();
+  const g = fzGranSel === "auto" ? autoGran(S.from, S.to) : fzGranSel;
+  const items = S.rows.map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
+  const dates = [...new Set(items.map(r => r.send_date))].sort();
+  const cnt = {};
+  items.forEach(r => { cnt[r._ch + "|" + r.send_date] = (cnt[r._ch + "|" + r.send_date] || 0) + 1; cnt[r._ch] = (cnt[r._ch] || 0) + 1; });
+  const labels = [...new Set(items.map(i => i._ch))].sort((a, b) => (a === FZ_NOMAP) - (b === FZ_NOMAP) || (cnt[b] || 0) - (cnt[a] || 0));
+  const mapped = items.filter(i => i._ch !== FZ_NOMAP).length;
+  const BC = bucketCols(dates, g);
+  const cv = (l, b) => BC.days(b).reduce((s, d) => s + (cnt[l + "|" + d] || 0), 0);
+  const wb = XLSX.utils.book_new();
+  const a1 = [[X(`彰化轉運中心 發轉滑道分析（${S.from}～${S.to}・${GRAN_ZH[g]}檢視）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })],
+    [X(`發轉件 ${S.rows.length} 筆・可對應滑道 ${mapped} 筆（依註區站對應滑道歸戶）`, { sz: 12 })], [],
+    [H("排名"), H("滑道"), H("服務站所"), ...BC.bs.map(b => H(bucketLabel(b, g))), H("累計"), H("占比")]];
+  labels.forEach((l, i) => {
+    const n = cnt[l] || 0, top = i === 0 && l !== FZ_NOMAP, isNo = l === FZ_NOMAP;
+    const o = top ? { fill: "FDE2E2", color: "B42318" } : {};
+    a1.push([X(isNo ? "—" : i + 1, o), X(l + (top ? " ▲" : ""), { ...o, left: true }), X(isNo ? "註區站不在滑道圖上" : fzLabelOf(l), { ...o, left: true }), ...BC.bs.map(b => X(cv(l, b), o)), X(n, { ...o, fill: o.fill || "F2F2F2" }), X(isNo ? "—" : pct(n, mapped), o)]);
+  });
+  const ws1 = XLSX.utils.aoa_to_sheet(a1);
+  ws1["!cols"] = [{ wch: 6 }, { wch: 10 }, { wch: 26 }, ...BC.bs.map(() => ({ wch: g === "day" ? 7 : 10 })), { wch: 8 }, { wch: 8 }];
+  ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...labels.map(() => ({ hpt: 22 }))];
+  ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: BC.bs.length + 5 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: BC.bs.length + 5 } }];
+  XLSX.utils.book_append_sheet(wb, ws1, "滑道排行");
+  const a2 = [["發送日", "十碼貨號", "誤流站(註區站)", "滑道", "應到站", "回覆原文"].map(H)];
+  items.sort((a, b) => a.send_date.localeCompare(b.send_date)).forEach(i => a2.push([X(md(i.send_date)), X(i.tracking_no), X(stName(i.note_station)), X(i._ch), X(i.dest_station || ""), X(i.reply || "", { left: true })]));
+  const ws2 = XLSX.utils.aoa_to_sheet(a2);
+  ws2["!cols"] = [8, 13, 12, 10, 9, 40].map(w => ({ wch: w }));
+  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: items.length, c: 5 } }) };
+  XLSX.utils.book_append_sheet(wb, ws2, "發轉件明細");
+  const fname = `發轉滑道分析_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  msg.innerHTML = `<span class="msg-ok">✅ 已匯出 ${fname}</span>`;
+}
 // ---------- 年度儀表：12 個月的單位／外包公司走勢 ----------
 let yearData = null;
 const CO_COLOR = { "信林": "--s1", "有根": "--s3", "丞閎": "--s7" };
@@ -2296,6 +2525,7 @@ async function importFillFile(file) {
     loadPivot(true);
     loadAttr(true);
     loadCage(true);
+    loadFz(true);
   } catch (e) {
     msg.innerHTML = `<span class="msg-err">匯入失敗：${esc(e.message)}</span>`;
   }
