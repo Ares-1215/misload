@@ -1906,10 +1906,8 @@ const FZ_ST2CH = (() => {
   return out;
 })();
 const fzChuteOf = st => FZ_ST2CH[st] || FZ_NOMAP;
-const fzLabelOf = ch => {   // 滑道服務站所（顯示用）
-  const c = FZ_CHUTES.find(x => ch.split("/").includes(x.no));
-  return c ? c.codes.map(cd => FZ_LEGEND[cd] || cd).join("、") : "";
-};
+const fzLabelOf = ch => Object.keys(FZ_ST2CH).filter(nm => FZ_ST2CH[nm] === ch).join("、");          // 歸到該群組的站
+const fzChuteStations = no => Object.keys(FZ_ST2CH).filter(nm => FZ_ST2CH[nm].split("/").includes(no)).join("、");   // 該滑道服務的全部站
 let fzData = null, fzGranSel = "auto", fzSelChute = null;
 function initFzControls() {
   const f = document.getElementById("fzFrom"), t = document.getElementById("fzTo"), mSel = document.getElementById("fzMonth");
@@ -1971,16 +1969,15 @@ function renderFz() {
   const rank = {};
   labels.filter(l => l !== FZ_NOMAP).sort((a, b) => (cnt[b] || 0) - (cnt[a] || 0)).forEach((l, i) => { if (cnt[l]) rank[l] = i + 1; });
   const topCh = Object.keys(rank).find(l => rank[l] === 1);
-  // ── 月台平面熱度圖（上排 34→5、下排 48→78） ──
-  const mxc = Math.max(1, ...FZ_CHUTES.map(c => { const nm = FZ_LEGEND[c.codes[0]]; const lb = nm ? FZ_ST2CH[nm] : null; return lb ? (cnt[lb] || 0) : 0; }));
+  // ── 月台平面熱度圖（上排 34→5、下排 48→78）；格數＝所有含該滑道的歸戶群組合計 ──
+  const chCount = no => labels.reduce((s, l) => s + (l !== FZ_NOMAP && l.split("/").includes(no) ? (cnt[l] || 0) : 0), 0);
+  const mxc = Math.max(1, ...FZ_CHUTES.map(c => chCount(c.no)));
   const cell = c => {
-    const nms = [...new Set(c.codes.map(cd => FZ_LEGEND[cd]).filter(Boolean))];
-    const lb = nms.length ? FZ_ST2CH[nms[0]] : null;
-    const n = lb ? (cnt[lb] || 0) : 0;
+    const n = chCount(c.no);
     const heat = n ? `background:rgba(211,59,59,${(0.10 + 0.62 * n / mxc).toFixed(2)});` : "";
-    const sel = fzSelChute && lb === fzSelChute ? " sel" : "";
-    return `<div class="ch${sel}" data-ch="${lb || ""}" title="滑道 ${c.no}：${c.codes.map(cd => (FZ_LEGEND[cd] || cd)).join("、") || "（未設定）"}${c.q ? "（?待確認）" : ""}" style="${heat}">
-      <div class="no">${c.no}${c.q ? "?" : ""}</div><div class="n">${n || "·"}</div><div class="cds">${c.codes.join(" ") || "—"}</div></div>`;
+    const sel = fzSelChute === c.no ? " sel" : "";
+    return `<div class="ch${sel}" data-no="${c.no}" title="滑道 ${c.no}：${fzChuteStations(c.no) || c.codes.join("、") || "（未設定）"}" style="${heat}">
+      <div class="no">${c.no}</div><div class="n">${n || "·"}</div><div class="cds">${c.codes.slice(0, 5).join(" ")}${c.codes.length > 5 ? "…" : (c.codes.length ? "" : "—")}</div></div>`;
   };
   const topRow = FZ_CHUTES.filter(c => c.side === "top").map(cell).join("");
   const botRow = FZ_CHUTES.filter(c => c.side === "bottom").map(cell).join("");
@@ -2002,13 +1999,13 @@ function renderFz() {
     <div id="fzDrill" style="margin:6px 0 10px"></div>
     <h3 style="font-size:13px;margin:12px 0 6px">滑道 × ${GRAN_ZH[g]} 排行（由多到少）</h3><div class="tblwrap">${mt}</div>`;
   box.querySelectorAll(".fzmap .ch").forEach(el => el.addEventListener("click", () => {
-    const lb = el.dataset.ch; if (!lb) return;
-    fzSelChute = fzSelChute === lb ? null : lb;
+    const no = el.dataset.no; if (!no) return;
+    fzSelChute = fzSelChute === no ? null : no;
     renderFz();
     if (fzSelChute) {
-      const list = items.filter(i => i._ch === fzSelChute).sort((a, b) => b.send_date.localeCompare(a.send_date));
+      const list = items.filter(i => i._ch !== FZ_NOMAP && i._ch.split("/").includes(fzSelChute)).sort((a, b) => b.send_date.localeCompare(a.send_date));
       const dr = document.getElementById("fzDrill");
-      dr.innerHTML = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzLabelOf(fzSelChute))}）共 ${list.length} 筆（點貨號查件）：</div>
+      dr.innerHTML = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzChuteStations(fzSelChute))}）共 ${list.length} 筆（點貨號查件）：</div>
         <div style="max-height:240px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.7">` +
         list.map(i => `<div style="display:flex;gap:12px;padding:3px 0;align-items:baseline;border-bottom:1px solid var(--grid)">
           <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
