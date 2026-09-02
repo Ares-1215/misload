@@ -1850,6 +1850,8 @@ function exportMonthlyReport() {
   buildAttrSheets(wb, S, g);
   const C = { from: S.from, to: S.to, ...cageStats(S.rows.filter(r => r.resp_unit === "籠車")) };
   if (C.items.length) buildCageSheets(wb, C, g);
+  const F = { from: S.from, to: S.to, rows: S.rows.filter(r => r.resp_unit === "發轉") };
+  if (F.rows.length) buildFzSheets(wb, F, g);
   const sameM = S.from.slice(0, 7) === S.to.slice(0, 7);
   const fname = sameM ? `彰化轉運中心誤裝訂月報_${S.from.slice(0, 7).replace("-", "")}.xlsx`
     : `彰化轉運中心誤裝訂報表_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
@@ -2045,12 +2047,8 @@ function renderFz() {
     if (fzSelChute) document.getElementById("fzDrill")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }));
 }
-function exportFzExcel() {
-  const msg = document.getElementById("unitMsg");
-  if (!fzData || !fzData.rows.length) { msg.textContent = "發轉滑道分析尚無資料可匯出"; return; }
-  const S = fzData;
+function buildFzSheets(wb, S, g) {   // S = {from, to, rows}（rows＝發轉責任件）
   const { X, H } = xlHelpers();
-  const g = fzGranSel === "auto" ? autoGran(S.from, S.to) : fzGranSel;
   const items = S.rows.map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
   const dates = [...new Set(items.map(r => r.send_date))].sort();
   const cnt = {};
@@ -2059,7 +2057,6 @@ function exportFzExcel() {
   const mapped = items.filter(i => i._ch !== FZ_NOMAP).length;
   const BC = bucketCols(dates, g);
   const cv = (l, b) => BC.days(b).reduce((s, d) => s + (cnt[l + "|" + d] || 0), 0);
-  const wb = XLSX.utils.book_new();
   const a1 = [[X(`彰化轉運中心 發轉滑道分析（${S.from}～${S.to}・${GRAN_ZH[g]}檢視）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })],
     [X(`發轉件 ${S.rows.length} 筆・可對應滑道 ${mapped} 筆（依註區站對應滑道歸戶）`, { sz: 12 })], [],
     [H("排名"), H("滑道"), H("服務站所"), ...BC.bs.map(b => H(bucketLabel(b, g))), H("累計"), H("占比")]];
@@ -2078,7 +2075,14 @@ function exportFzExcel() {
   autoFitSheet(ws2, a2, { wrapCols: [5], rowHpts: { 0: 24 }, baseHpt: 20 });
   ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: items.length, c: 5 } }) };
   XLSX.utils.book_append_sheet(wb, ws2, "發轉件明細");
-  const fname = `發轉滑道分析_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
+}
+function exportFzExcel() {
+  const msg = document.getElementById("unitMsg");
+  if (!fzData || !fzData.rows.length) { msg.textContent = "發轉滑道分析尚無資料可匯出"; return; }
+  const g = fzGranSel === "auto" ? autoGran(fzData.from, fzData.to) : fzGranSel;
+  const wb = XLSX.utils.book_new();
+  buildFzSheets(wb, fzData, g);
+  const fname = `發轉滑道分析_${ymdCompact(fzData.from)}-${ymdCompact(fzData.to)}.xlsx`;
   XLSX.writeFile(wb, fname);
   msg.innerHTML = `<span class="msg-ok">✅ 已匯出 ${fname}</span>`;
 }
