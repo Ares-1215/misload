@@ -1992,28 +1992,29 @@ function renderFz() {
     mt += `<tr${st}><td>${esc(l)}${top ? " 🔺" : ""}</td><td style="white-space:normal;max-width:220px;font-size:12px">${isNo ? "註區站不在滑道圖上" : esc(fzLabelOf(l))}</td>${BC.bs.map(b => { const v = cv(l, b); return `<td class="num">${v || "·"}</td>`; }).join("")}<td class="num"><b>${n}</b></td><td class="num">${isNo ? "—" : pct(n, mapped)}</td><td class="num">${rank[l] || "—"}</td></tr>`;
   });
   mt += `</tbody></table>`;
+  // 下鑽明細（點選滑道時直接在這裡渲染）
+  let drill = "";
+  if (fzSelChute) {
+    const list = items.filter(i => i._ch !== FZ_NOMAP && i._ch.split("/").includes(fzSelChute)).sort((a, b) => b.send_date.localeCompare(a.send_date));
+    drill = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzChuteStations(fzSelChute))}）共 ${list.length} 筆（點貨號查件）：</div>
+      <div style="max-height:240px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.7">` +
+      (list.length ? list.map(i => `<div style="display:flex;gap:12px;padding:3px 0;align-items:baseline;border-bottom:1px solid var(--grid)">
+        <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
+        <a class="trackLink" data-no="${esc(i.tracking_no)}" style="cursor:pointer;color:var(--accent);flex-shrink:0;font-variant-numeric:tabular-nums;font-weight:600">${esc(i.tracking_no)}</a>
+        <span>誤流 <b>${esc(stName(i.note_station))}</b>　應到 ${esc(i.dest_station || "")}</span></div>`).join("") : `<div class="hint">此滑道在區間內沒有誤上櫃件。</div>`) + `</div>`;
+  }
   box.innerHTML = `
     <div class="hint">區間 ${md(S.from)}～${md(S.to)}　發轉件 <b>${fmtN(S.rows.length)}</b> 筆・可對應滑道 <b>${fmtN(mapped)}</b> 筆${topCh ? `・🔺 錯最多：<b style="color:var(--bad)">滑道 ${esc(topCh)}</b>（${esc(fzLabelOf(topCh))}，${cnt[topCh]} 筆）` : ""}</div>
     <h3 style="font-size:13px;margin:10px 0 2px">月台平面熱度圖（顏色越紅＝誤上櫃越多，點滑道看明細）</h3>
     <div class="fzmap">${topRow}</div><div class="fzbelt"></div><div class="fzmap">${botRow}</div>
-    <div id="fzDrill" style="margin:6px 0 10px"></div>
+    <div id="fzDrill" style="margin:6px 0 10px">${drill}</div>
     <h3 style="font-size:13px;margin:12px 0 6px">滑道 × ${GRAN_ZH[g]} 排行（由多到少）</h3><div class="tblwrap">${mt}</div>`;
+  document.getElementById("fzDrill").onclick = tableClick;
   box.querySelectorAll(".fzmap .ch").forEach(el => el.addEventListener("click", () => {
     const no = el.dataset.no; if (!no) return;
     fzSelChute = fzSelChute === no ? null : no;
     renderFz();
-    if (fzSelChute) {
-      const list = items.filter(i => i._ch !== FZ_NOMAP && i._ch.split("/").includes(fzSelChute)).sort((a, b) => b.send_date.localeCompare(a.send_date));
-      const dr = document.getElementById("fzDrill");
-      dr.innerHTML = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzChuteStations(fzSelChute))}）共 ${list.length} 筆（點貨號查件）：</div>
-        <div style="max-height:240px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.7">` +
-        list.map(i => `<div style="display:flex;gap:12px;padding:3px 0;align-items:baseline;border-bottom:1px solid var(--grid)">
-          <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
-          <a class="trackLink" data-no="${esc(i.tracking_no)}" style="cursor:pointer;color:var(--accent);flex-shrink:0;font-variant-numeric:tabular-nums;font-weight:600">${esc(i.tracking_no)}</a>
-          <span>誤流 <b>${esc(stName(i.note_station))}</b>　應到 ${esc(i.dest_station || "")}</span></div>`).join("") + `</div>`;
-      dr.onclick = tableClick;
-      dr.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
+    if (fzSelChute) document.getElementById("fzDrill")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }));
 }
 function exportFzExcel() {
