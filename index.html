@@ -1850,7 +1850,9 @@ function exportMonthlyReport() {
   buildAttrSheets(wb, S, g);
   const C = { from: S.from, to: S.to, ...cageStats(S.rows.filter(r => r.resp_unit === "籠車")) };
   if (C.items.length) buildCageSheets(wb, C, g);
-  const F = { from: S.from, to: S.to, rows: S.rows.filter(r => r.resp_unit === "發轉") };
+  const fzAll = S.rows.filter(r => r.resp_unit === "發轉");
+  const fzKeep = fzAll.filter(r => classifyReason(r.reply) !== "非本所責任");   // 非本所責任不列入滑道分析
+  const F = { from: S.from, to: S.to, rows: fzKeep, excl: fzAll.length - fzKeep.length };
   if (F.rows.length) buildFzSheets(wb, F, g);
   const sameM = S.from.slice(0, 7) === S.to.slice(0, 7);
   const fname = sameM ? `彰化轉運中心誤裝訂月報_${S.from.slice(0, 7).replace("-", "")}.xlsx`
@@ -1972,7 +1974,9 @@ async function loadFz(force) {
   try {
     const { rows } = await fetchAllDetails({ resp_station: "彰化(含籠車)", resp_units: ["發轉"], date_from: from, date_to: to },
       (n, t2) => box.textContent = `載入發轉件… ${n}/${t2}`);
-    fzData = { key, from, to, rows };
+    // 回覆判為「非本所責任」的不列入滑道分析（未回覆的仍計入）
+    const keep = rows.filter(r => classifyReason(r.reply) !== "非本所責任");
+    fzData = { key, from, to, rows: keep, excl: rows.length - keep.length };
     fzSelChute = null;
     renderFz();
   } catch (e) { box.className = ""; box.innerHTML = `<div class="msg-err">${esc(e.message)}</div>`; }
@@ -2034,7 +2038,7 @@ function renderFz() {
         <span>誤流 <b>${esc(stName(i.note_station))}</b>　應到 ${esc(i.dest_station || "")}</span></div>`).join("") : `<div class="hint">此滑道在區間內沒有誤上櫃件。</div>`) + `</div>`;
   }
   box.innerHTML = `
-    <div class="hint">區間 ${md(S.from)}～${md(S.to)}　發轉件 <b>${fmtN(S.rows.length)}</b> 筆・可對應滑道 <b>${fmtN(mapped)}</b> 筆${topCh ? `・🔺 錯最多：<b style="color:var(--bad)">滑道 ${esc(topCh)}</b>（${esc(fzLabelOf(topCh))}，${cnt[topCh]} 筆）` : ""}</div>
+    <div class="hint">區間 ${md(S.from)}～${md(S.to)}　發轉件 <b>${fmtN(S.rows.length)}</b> 筆${S.excl ? `（已排除非本所責任 ${fmtN(S.excl)} 筆）` : ""}・可對應滑道 <b>${fmtN(mapped)}</b> 筆${topCh ? `・🔺 錯最多：<b style="color:var(--bad)">滑道 ${esc(topCh)}</b>（${esc(fzLabelOf(topCh))}，${cnt[topCh]} 筆）` : ""}</div>
     <h3 style="font-size:13px;margin:10px 0 2px">月台平面熱度圖（顏色越紅＝誤上櫃越多，點滑道看明細）</h3>
     <div class="fzmap">${topRow}</div><div class="fzbelt"></div><div class="fzmap">${botRow}</div>
     <div id="fzDrill" style="margin:6px 0 10px">${drill}</div>
@@ -2058,7 +2062,7 @@ function buildFzSheets(wb, S, g) {   // S = {from, to, rows}（rows＝發轉責�
   const BC = bucketCols(dates, g);
   const cv = (l, b) => BC.days(b).reduce((s, d) => s + (cnt[l + "|" + d] || 0), 0);
   const a1 = [[X(`彰化轉運中心 發轉滑道分析（${S.from}～${S.to}・${GRAN_ZH[g]}檢視）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })],
-    [X(`發轉件 ${S.rows.length} 筆・可對應滑道 ${mapped} 筆（依註區站對應滑道歸戶）`, { sz: 12 })], [],
+    [X(`發轉件 ${S.rows.length} 筆${S.excl ? `（已排除非本所責任 ${S.excl} 筆）` : ""}・可對應滑道 ${mapped} 筆（依註區站對應滑道歸戶）`, { sz: 12 })], [],
     [H("排名"), H("滑道"), H("服務站所"), ...BC.bs.map(b => H(bucketLabel(b, g))), H("累計"), H("占比")]];
   labels.forEach((l, i) => {
     const n = cnt[l] || 0, top = i === 0 && l !== FZ_NOMAP, isNo = l === FZ_NOMAP;
