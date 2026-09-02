@@ -1750,11 +1750,40 @@ function attrCompanies(rows) {
   });
   return per;
 }
+// 依內容自動欄寬/列高（SheetJS 寫出的檔 Excel 開啟不會自動重算，必須自己算）
+// 中文算 2 格；wrapCols 欄到上限才換行、列高依行數加高；skipRows＝合併標題列不參與算寬；rowHpts＝指定列高
+function autoFitSheet(ws, aoa, { wrapCols = [], minWch = 6, maxWch = 30, wrapMaxWch = 50, colMax = {}, rowHpts = {}, skipRows = [], lineHpt = 16, baseHpt = 20 } = {}) {
+  const dispLen = s => { let n = 0; for (const ch of String(s ?? "")) n += ch.charCodeAt(0) > 255 ? 2 : 1; return n; };
+  const ncol = Math.max(...aoa.map(r => r.length));
+  const widths = Array.from({ length: ncol }, (_, c) => {
+    let w = 0;
+    aoa.forEach((r, ri) => {
+      if (skipRows.includes(ri)) return;
+      const cellv = r[c], v = cellv?.v;
+      if (v == null || v === "") return;
+      const f = Math.max(1, (cellv?.s?.font?.sz || 11) / 11);
+      for (const line of String(v).split("\n")) w = Math.max(w, Math.ceil(dispLen(line) * f));
+    });
+    const cap = colMax[c] ?? (wrapCols.includes(c) ? wrapMaxWch : maxWch);
+    return Math.min(Math.max(w + 2, minWch), cap);
+  });
+  ws["!cols"] = widths.map(w => ({ wch: w }));
+  ws["!rows"] = aoa.map((r, ri) => {
+    if (rowHpts[ri] != null) return { hpt: rowHpts[ri] };
+    let lines = 1;
+    for (const c of wrapCols) {
+      const v = r[c]?.v; if (v == null || v === "") continue;
+      const n = String(v).split("\n").reduce((s, line) => s + Math.max(1, Math.ceil(dispLen(line) / Math.max(1, widths[c] - 1))), 0);
+      lines = Math.max(lines, n);
+    }
+    return lines === 1 ? { hpt: baseHpt } : { hpt: Math.min(lines * lineHpt + 6, 409) };
+  });
+}
 function xlHelpers() {
   const BR = { style: "thin", color: { rgb: "9AA4B0" } };
   const X = (v, o = {}) => ({ v: v == null ? "" : v, t: typeof v === "number" ? "n" : "s", s: {
     font: { bold: true, sz: o.sz || 11, name: "微軟正黑體", ...(o.color ? { color: { rgb: o.color } } : {}) },
-    alignment: { horizontal: o.left ? "left" : "center", vertical: "center" },
+    alignment: { horizontal: "center", vertical: "center", wrapText: !!(o.wrap || o.left) },   // 全部置中；長文欄置中＋換行
     ...(o.fill ? { fill: { fgColor: { rgb: o.fill } } } : {}),
     border: { top: BR, bottom: BR, left: BR, right: BR } } });
   return { X, H: v => X(v, { fill: "1F4E79", color: "FFFFFF" }) };
@@ -1773,8 +1802,7 @@ function buildAttrSheets(wb, S, g) {
   });
   a1.push([X("合計", { fill: "DCE9FA", left: true }), ...BC.bs.map(b => X(BC.days(b).reduce((s, d) => s + (dTot[d] || 0), 0), { fill: "DCE9FA" })), X(total, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" }), X("", { fill: "DCE9FA" })]);
   const ws1 = XLSX.utils.aoa_to_sheet(a1);
-  ws1["!cols"] = [{ wch: 12 }, ...BC.bs.map(() => ({ wch: g === "day" ? 7 : 10 })), { wch: 8 }, { wch: 8 }, { wch: 7 }];
-  ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...units.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  autoFitSheet(ws1, a1, { skipRows: [0, 1], rowHpts: { 0: 30, 1: 22, 2: 8, 3: 26 }, baseHpt: 22 });
   ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: BC.bs.length + 3 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: BC.bs.length + 3 } }];
   XLSX.utils.book_append_sheet(wb, ws1, "單位歸咎");
   // 外包公司歸咎：各單位分列（每單位一個區塊）
@@ -2041,14 +2069,13 @@ function exportFzExcel() {
     a1.push([X(isNo ? "—" : i + 1, o), X(l + (top ? " ▲" : ""), { ...o, left: true }), X(isNo ? "註區站不在滑道圖上" : fzLabelOf(l), { ...o, left: true }), ...BC.bs.map(b => X(cv(l, b), o)), X(n, { ...o, fill: o.fill || "F2F2F2" }), X(isNo ? "—" : pct(n, mapped), o)]);
   });
   const ws1 = XLSX.utils.aoa_to_sheet(a1);
-  ws1["!cols"] = [{ wch: 6 }, { wch: 10 }, { wch: 26 }, ...BC.bs.map(() => ({ wch: g === "day" ? 7 : 10 })), { wch: 8 }, { wch: 8 }];
-  ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...labels.map(() => ({ hpt: 22 }))];
+  autoFitSheet(ws1, a1, { skipRows: [0, 1], wrapCols: [2], rowHpts: { 0: 30, 1: 22, 2: 8, 3: 26 }, baseHpt: 22 });
   ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: BC.bs.length + 5 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: BC.bs.length + 5 } }];
   XLSX.utils.book_append_sheet(wb, ws1, "滑道排行");
   const a2 = [["發送日", "十碼貨號", "誤流站(註區站)", "滑道", "應到站", "回覆原文"].map(H)];
   items.sort((a, b) => a.send_date.localeCompare(b.send_date)).forEach(i => a2.push([X(md(i.send_date)), X(i.tracking_no), X(stName(i.note_station)), X(i._ch), X(i.dest_station || ""), X(i.reply || "", { left: true })]));
   const ws2 = XLSX.utils.aoa_to_sheet(a2);
-  ws2["!cols"] = [8, 13, 12, 10, 9, 40].map(w => ({ wch: w }));
+  autoFitSheet(ws2, a2, { wrapCols: [5], rowHpts: { 0: 24 }, baseHpt: 20 });
   ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: items.length, c: 5 } }) };
   XLSX.utils.book_append_sheet(wb, ws2, "發轉件明細");
   const fname = `發轉滑道分析_${ymdCompact(S.from)}-${ymdCompact(S.to)}.xlsx`;
@@ -2281,8 +2308,7 @@ function buildCageSheets(wb, S, g) {
   a1.push([X("合計", { fill: "DCE9FA", left: true }), ...BC.bs.map(b => X(BC.days(b).reduce((s2, d) => s2 + (S.dateTot[d] || 0), 0), { fill: "DCE9FA" })), ...LINE_TYPES.map(t => X(typeTot(t), { fill: "DCE9FA" })), X(S.codedTotal, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" }), X("", { fill: "DCE9FA" })]);
   const ws1 = XLSX.utils.aoa_to_sheet(a1);
   const nc1 = BC.bs.length + 6;
-  ws1["!cols"] = [{ wch: 14 }, ...BC.bs.map(() => ({ wch: g === "day" ? 7 : 10 })), { wch: 12 }, { wch: 15 }, { wch: 9 }, { wch: 9 }, { wch: 7 }];
-  ws1["!rows"] = [{ hpt: 30 }, { hpt: 22 }, { hpt: 8 }, { hpt: 26 }, ...S.lines.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  autoFitSheet(ws1, a1, { skipRows: [0, 1], rowHpts: { 0: 30, 1: 22, 2: 8, 3: 26 }, baseHpt: 22 });
   ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nc1 - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: nc1 - 1 } }];
   XLSX.utils.book_append_sheet(wb, ws1, "各線累計");
   // 工作表2：各線錯誤件數（由多到少，疊籠板／RJ 分欄＋文字長條：■疊籠板 □RJ）
@@ -2298,8 +2324,7 @@ function buildCageSheets(wb, S, g) {
   });
   aB.push([X("", { fill: "DCE9FA" }), X("合計", { fill: "DCE9FA", left: true }), X(typeTot("疊籠板錯誤"), { fill: "DCE9FA" }), X(typeTot("RJ人工分貨疏失"), { fill: "DCE9FA" }), X(S.codedTotal, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" }), X("", { fill: "DCE9FA" })]);
   const wsB = XLSX.utils.aoa_to_sheet(aB);
-  wsB["!cols"] = [{ wch: 6 }, { wch: 10 }, { wch: 12 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 46 }];
-  wsB["!rows"] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 26 }, ...sortedL.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  autoFitSheet(wsB, aB, { skipRows: [0], colMax: { 6: 90 }, rowHpts: { 0: 30, 1: 8, 2: 26 }, baseHpt: 22 });
   wsB["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
   XLSX.utils.book_append_sheet(wb, wsB, "各線錯誤件數");
   // 工作表3：外包公司 × 錯誤類型
@@ -2308,15 +2333,14 @@ function buildCageSheets(wb, S, g) {
   S.cos.forEach(c => a2.push([X(c, { left: true }), ...CAGE_TYPES.map(t => X(S.coCnt[c + "|" + t] || 0)), X(S.coCnt[c + "|all"] || 0, { fill: "F2F2F2" }), X(pct(S.coCnt[c + "|all"] || 0, S.items.length))]));
   a2.push([X("合計", { fill: "DCE9FA", left: true }), ...CAGE_TYPES.map(t => X(S.items.filter(i => i._t === t).length, { fill: "DCE9FA" })), X(S.items.length, { fill: "FFE08A" }), X("100%", { fill: "DCE9FA" })]);
   const ws2 = XLSX.utils.aoa_to_sheet(a2);
-  ws2["!cols"] = [{ wch: 14 }, ...CAGE_TYPES.map(() => ({ wch: 16 })), { wch: 9 }, { wch: 9 }];
-  ws2["!rows"] = [{ hpt: 30 }, { hpt: 8 }, { hpt: 26 }, ...S.cos.map(() => ({ hpt: 22 })), { hpt: 24 }];
+  autoFitSheet(ws2, a2, { skipRows: [0], rowHpts: { 0: 30, 1: 8, 2: 26 }, baseHpt: 22 });
   ws2["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: CAGE_TYPES.length + 2 } }];
   XLSX.utils.book_append_sheet(wb, ws2, "外包公司統計");
   // 工作表4：明細（計入各線的每一筆）
   const a3 = [["發送日", "十碼貨號", "到著站", "註區站", "錯誤類型", "外包公司", "籠位", "回覆原文", "改善方式"].map(H)];
   S.lineItems.forEach(i => a3.push([X(md(i.send_date)), X(i.tracking_no), X(i.dest_station), X(stName(i.note_station)), X(i._t), X(i._co), X(i._slots.join("、") || NO_LINE), X(i.reply, { left: true }), X(i.improve || "", { left: true })]));
   const ws3 = XLSX.utils.aoa_to_sheet(a3);
-  ws3["!cols"] = [8, 13, 9, 9, 16, 10, 10, 40, 30].map(w => ({ wch: w }));
+  autoFitSheet(ws3, a3, { wrapCols: [7, 8], rowHpts: { 0: 24 }, baseHpt: 20 });
   ws3["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: S.lineItems.length, c: 8 } }) };
   XLSX.utils.book_append_sheet(wb, ws3, "計入各線明細");
 }
@@ -2420,7 +2444,7 @@ async function exportUnitFile() {
       t: typeof v === "number" ? "n" : "s",
       s: {
         font: { ...BOLD, ...(opt.font || {}) },
-        alignment: { horizontal: opt.wrap ? "left" : "center", vertical: "center", wrapText: !!opt.wrap },
+        alignment: { horizontal: "center", vertical: "center", wrapText: !!opt.wrap },
         ...(opt.fill ? { fill: { fgColor: { rgb: opt.fill } } } : {}),
         ...BORDER,
       },
@@ -2441,8 +2465,7 @@ async function exportUnitFile() {
       }));
     });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [8, 10, 9, 13, 10, 8, 9, 8, 8, 9, 8, 10, 10, 45, 45].map(w => ({ wch: w }));
-    ws["!rows"] = [{ hpt: 28 }];
+    autoFitSheet(ws, aoa, { wrapCols: [13, 14], rowHpts: { 0: 28 }, baseHpt: 22 });
     ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: FILL_HEADS.length - 1 } }) };
     ws["!margins"] = { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
     const wb = XLSX.utils.book_new();
@@ -2633,6 +2656,8 @@ function exportRange(kind) {
   return { from: `${y}-01-01`, to: `${y}-12-31`, label: `${y}年` };
 }
 const CENTER = { alignment: { horizontal: "center", vertical: "center", wrapText: false } };
+const WRAP_CENTER = { alignment: { horizontal: "center", vertical: "center", wrapText: true } };
+const EXP_WRAP_COLS = [8, 18, 19];   // 明細匯出：收貨地址、誤裝誤訂原因、改善方式（換行欄）
 const HEADER_STYLE = { alignment: { horizontal: "center", vertical: "center" }, font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { fgColor: { rgb: "2480E6" } } };
 function sCell(v, extra) { return { v: v == null ? "" : v, t: typeof v === "number" ? "n" : "s", s: extra || CENTER }; }
 async function exportExcel(kind) {
@@ -2665,9 +2690,9 @@ async function exportExcel(kind) {
       r.send_date, r.region_name, r.resp_station, r.work_date, r.work_time, r.tracking_no,
       r.send_station, r.sender, r.address, r.pieces, r.dest_station, r.note_station, r.note_pieces,
       r.note_code, r.note_date, r.note_time, r.note_staff, r.resp_unit, r.reply, r.improve, r.product_type,
-    ].map(v => sCell(v))));
+    ].map((v, ci) => sCell(v, EXP_WRAP_COLS.includes(ci) ? WRAP_CENTER : CENTER))));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [12, 8, 8, 11, 9, 13, 8, 12, 34, 9, 8, 8, 9, 7, 11, 9, 10, 9, 22, 22, 9].map(w => ({ wch: w }));
+    autoFitSheet(ws, aoa, { wrapCols: EXP_WRAP_COLS, rowHpts: { 0: 24 }, baseHpt: 18 });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "誤裝訂明細");
     // 統計工作表（該範圍有統計資料才加）
@@ -2685,7 +2710,7 @@ async function exportExcel(kind) {
           sAoa.push(row);
         });
       const ws2 = XLSX.utils.aoa_to_sheet(sAoa);
-      ws2["!cols"] = [12, 8, 8, 8, 11, 11, 10].map(w => ({ wch: w }));
+      autoFitSheet(ws2, sAoa, { rowHpts: { 0: 24 }, baseHpt: 18 });
       XLSX.utils.book_append_sheet(wb, ws2, "統計");
     }
     XLSX.writeFile(wb, `誤裝訂_${label}.xlsx`);
