@@ -1940,11 +1940,14 @@ const fzChuteOf = st => FZ_ST2CH[st] || FZ_NOMAP;
 // 轉櫃線：48/49=彰工轉櫃(中工誤裝)、64/65=彰八北轉櫃(八里誤裝)→前站責任，整條線不列入滑道分析
 const FZ_XFER = ["48", "49", "64", "65"];
 const fzIsXfer = lb => lb !== FZ_NOMAP && lb.split("/").every(n => FZ_XFER.includes(n));   // 全部都是轉櫃線才排除（如新富 48/78 兩邊都可能流→保留）
-const fzXferName = no => (no === "48" || no === "49") ? "彰工轉櫃（中工誤裝）" : "彰八北轉櫃（八里誤裝）";
+const fzXferName = no => (String(no).split("/").some(n => n === "48" || n === "49")) ? "彰工轉櫃" : "彰八北轉櫃";
+const fzXferOwner = no => (String(no).split("/").some(n => n === "48" || n === "49")) ? "中工所" : "八里轉運所";
+// 轉櫃線件不管回覆內容一律歸中工/八里（另列不佔本所排名）；其餘件回覆判「非本所責任」仍排除
 function fzFilterRows(rows) {
-  const keep1 = rows.filter(r => classifyReason(r.reply) !== "非本所責任");
-  const keep = keep1.filter(r => !fzIsXfer(fzChuteOf(stName(r.note_station))));
-  return { rows: keep, exclReply: rows.length - keep1.length, exclXfer: keep1.length - keep.length };
+  const xferRows = rows.filter(r => fzIsXfer(fzChuteOf(stName(r.note_station))));
+  const rest = rows.filter(r => !fzIsXfer(fzChuteOf(stName(r.note_station))));
+  const keep = rest.filter(r => classifyReason(r.reply) !== "非本所責任");
+  return { rows: keep, xferRows, exclReply: rest.length - keep.length };
 }
 const fzLabelOf = ch => Object.keys(FZ_ST2CH).filter(nm => FZ_ST2CH[nm] === ch).join("、");          // 歸到該群組的站
 const fzChuteStations = no => Object.keys(FZ_ST2CH).filter(nm => FZ_ST2CH[nm].split("/").includes(no)).join("、");   // 該滑道服務的全部站
@@ -1992,9 +1995,14 @@ function renderFz() {
   const box = document.getElementById("fzBox");
   if (!box || !fzData) return;
   const S = fzData; box.className = "";
-  if (!S.rows.length) { box.innerHTML = `<div class="hint">此區間沒有發轉責任件。</div>`; return; }
+  if (!S.rows.length && !(S.xferRows || []).length) { box.innerHTML = `<div class="hint">此區間沒有發轉責任件。</div>`; return; }
   const items = S.rows.map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
-  const dates = [...new Set(items.map(r => r.send_date))].sort();
+  const xitems = (S.xferRows || []).map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
+  const xcnt = {};
+  xitems.forEach(r => { xcnt[r._ch + "|" + r.send_date] = (xcnt[r._ch + "|" + r.send_date] || 0) + 1; xcnt[r._ch] = (xcnt[r._ch] || 0) + 1; });
+  const xlabels = [...new Set(xitems.map(i => i._ch))].sort();
+  const xOf = no => xlabels.reduce((s, l) => s + (l.split("/").includes(no) ? (xcnt[l] || 0) : 0), 0);
+  const dates = [...new Set([...items, ...xitems].map(r => r.send_date))].sort();
   const cnt = {};
   items.forEach(r => { cnt[r._ch + "|" + r.send_date] = (cnt[r._ch + "|" + r.send_date] || 0) + 1; cnt[r._ch] = (cnt[r._ch] || 0) + 1; });
   // 滑道清單（合併標籤去重，依月台順序）＋無對應
@@ -2013,9 +2021,15 @@ function renderFz() {
   // ── 月台平面熱度圖（上排 34→5、下排 48→78）；格數＝所有含該滑道的歸戶群組合計 ──
   const chCount = no => labels.reduce((s, l) => s + (l !== FZ_NOMAP && l.split("/").includes(no) ? (cnt[l] || 0) : 0), 0);
   const mxc = Math.max(1, ...FZ_CHUTES.map(c => chCount(c.no)));
+  const mxx = Math.max(1, ...FZ_XFER.map(xOf));
   const cell = c => {
-    if (FZ_XFER.includes(c.no)) return `<div class="ch" style="opacity:.4;cursor:default" title="滑道 ${c.no}：${fzXferName(c.no)}——前站責任，不列入分析">
-      <div class="no">${c.no}</div><div class="n" style="font-size:11px">轉櫃</div><div class="cds">${c.codes.slice(0, 5).join(" ")}${c.codes.length > 5 ? "…" : ""}</div></div>`;
+    if (FZ_XFER.includes(c.no)) {
+      const n = xOf(c.no);
+      const heat = n ? `background:rgba(42,120,214,${(0.12 + 0.55 * n / mxx).toFixed(2)});` : "opacity:.5;";
+      const sel = fzSelChute === c.no ? " sel" : "";
+      return `<div class="ch${sel}" data-no="${c.no}" title="滑道 ${c.no}：${fzXferName(c.no)}＝${fzXferOwner(c.no)}責任（另列，不佔本所排名）" style="${heat}">
+        <div class="no">${c.no}·${fzXferOwner(c.no).slice(0, 2)}</div><div class="n">${n || "·"}</div><div class="cds">${c.codes.slice(0, 5).join(" ")}${c.codes.length > 5 ? "…" : ""}</div></div>`;
+    }
     const n = chCount(c.no);
     const heat = n ? `background:rgba(211,59,59,${(0.10 + 0.62 * n / mxc).toFixed(2)});` : "";
     const sel = fzSelChute === c.no ? " sel" : "";
@@ -2034,12 +2048,17 @@ function renderFz() {
     const st = top ? ' style="color:var(--bad);font-weight:700"' : (isNo ? ' style="color:var(--muted)"' : "");
     mt += `<tr${st}><td>${esc(l)}${top ? " 🔺" : ""}</td><td style="white-space:normal;max-width:220px;font-size:12px">${isNo ? "註區站不在滑道圖上" : esc(fzLabelOf(l))}</td>${BC.bs.map(b => { const v = cv(l, b); return `<td class="num">${v || "·"}</td>`; }).join("")}<td class="num"><b>${n}</b></td><td class="num">${isNo ? "—" : pct(n, mapped)}</td><td class="num">${rank[l] || "—"}</td></tr>`;
   });
+  xlabels.forEach(l => {
+    mt += `<tr style="color:var(--accent)"><td><b>${esc(l)}</b> 轉櫃</td><td style="white-space:normal;max-width:220px;font-size:12px"><b>${fzXferOwner(l)}責任</b>（${fzXferName(l)}）</td>${BC.bs.map(b => { const v = BC.days(b).reduce((s, d) => s + (xcnt[l + "|" + d] || 0), 0); return `<td class="num">${v || "·"}</td>`; }).join("")}<td class="num"><b>${xcnt[l] || 0}</b></td><td class="num">—</td><td class="num">—</td></tr>`;
+  });
   mt += `</tbody></table>`;
   // 下鑽明細（點選滑道時直接在這裡渲染）
   let drill = "";
   if (fzSelChute) {
-    const list = items.filter(i => i._ch !== FZ_NOMAP && i._ch.split("/").includes(fzSelChute)).sort((a, b) => b.send_date.localeCompare(a.send_date));
-    drill = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzChuteStations(fzSelChute))}）共 ${list.length} 筆（點貨號查件）：</div>
+    const isX = FZ_XFER.includes(fzSelChute);
+    const src = isX ? xitems : items;
+    const list = src.filter(i => i._ch !== FZ_NOMAP && i._ch.split("/").includes(fzSelChute)).sort((a, b) => b.send_date.localeCompare(a.send_date));
+    drill = `<div style="font-size:14px;margin:4px 0 6px"><b>滑道 ${esc(fzSelChute)}</b>（${esc(fzChuteStations(fzSelChute))}）${isX ? `＝<b style="color:var(--accent)">${fzXferOwner(fzSelChute)}責任</b>（${fzXferName(fzSelChute)}）` : ""}共 ${list.length} 筆（點貨號查件）：</div>
       <div style="max-height:240px;overflow:auto;border:1px solid var(--grid);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.7">` +
       (list.length ? list.map(i => `<div style="display:flex;gap:12px;padding:3px 0;align-items:baseline;border-bottom:1px solid var(--grid)">
         <span style="color:var(--muted);flex-shrink:0">${md(i.send_date)}</span>
@@ -2047,7 +2066,7 @@ function renderFz() {
         <span>誤流 <b>${esc(stName(i.note_station))}</b>　應到 ${esc(i.dest_station || "")}</span></div>`).join("") : `<div class="hint">此滑道在區間內沒有誤上櫃件。</div>`) + `</div>`;
   }
   box.innerHTML = `
-    <div class="hint">區間 ${md(S.from)}～${md(S.to)}　發轉件 <b>${fmtN(S.rows.length)}</b> 筆${(S.exclReply || S.exclXfer) ? `（已排除：非本所責任回覆 ${fmtN(S.exclReply || 0)} 筆、轉櫃線 48/49/64/65 共 ${fmtN(S.exclXfer || 0)} 筆）` : ""}・可對應滑道 <b>${fmtN(mapped)}</b> 筆${topCh ? `・🔺 錯最多：<b style="color:var(--bad)">滑道 ${esc(topCh)}</b>（${esc(fzLabelOf(topCh))}，${cnt[topCh]} 筆）` : ""}</div>
+    <div class="hint">區間 ${md(S.from)}～${md(S.to)}　本所發轉件 <b>${fmtN(S.rows.length)}</b> 筆${S.exclReply ? `（已排除非本所責任回覆 ${fmtN(S.exclReply)} 筆）` : ""}${xitems.length ? `・轉櫃線另列 <b style="color:var(--accent)">${fmtN(xitems.length)}</b> 筆（中工所 ${fmtN(xitems.filter(i => fzXferOwner(i._ch) === "中工所").length)}、八里轉運所 ${fmtN(xitems.filter(i => fzXferOwner(i._ch) === "八里轉運所").length)}）` : ""}${topCh ? `・🔺 本所錯最多：<b style="color:var(--bad)">滑道 ${esc(topCh)}</b>（${esc(fzLabelOf(topCh))}，${cnt[topCh]} 筆）` : ""}</div>
     <h3 style="font-size:13px;margin:10px 0 2px">月台平面熱度圖（顏色越紅＝誤上櫃越多，點滑道看明細）</h3>
     <div class="fzmap">${topRow}</div><div class="fzbelt"></div><div class="fzmap">${botRow}</div>
     <div id="fzDrill" style="margin:6px 0 10px">${drill}</div>
@@ -2060,10 +2079,14 @@ function renderFz() {
     if (fzSelChute) document.getElementById("fzDrill")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }));
 }
-function buildFzSheets(wb, S, g) {   // S = {from, to, rows}（rows＝發轉責任件）
+function buildFzSheets(wb, S, g) {   // S = {from, to, rows, xferRows}（rows＝本所發轉件；xferRows＝轉櫃線件另列）
   const { X, H } = xlHelpers();
   const items = S.rows.map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
-  const dates = [...new Set(items.map(r => r.send_date))].sort();
+  const xitems = (S.xferRows || []).map(r => ({ ...r, _ch: fzChuteOf(stName(r.note_station)) }));
+  const xcnt = {};
+  xitems.forEach(r => { xcnt[r._ch + "|" + r.send_date] = (xcnt[r._ch + "|" + r.send_date] || 0) + 1; xcnt[r._ch] = (xcnt[r._ch] || 0) + 1; });
+  const xlabels = [...new Set(xitems.map(i => i._ch))].sort();
+  const dates = [...new Set([...items, ...xitems].map(r => r.send_date))].sort();
   const cnt = {};
   items.forEach(r => { cnt[r._ch + "|" + r.send_date] = (cnt[r._ch + "|" + r.send_date] || 0) + 1; cnt[r._ch] = (cnt[r._ch] || 0) + 1; });
   const labels = [...new Set(items.map(i => i._ch))].sort((a, b) => (a === FZ_NOMAP) - (b === FZ_NOMAP) || (cnt[b] || 0) - (cnt[a] || 0));
@@ -2071,22 +2094,31 @@ function buildFzSheets(wb, S, g) {   // S = {from, to, rows}（rows＝發轉責�
   const BC = bucketCols(dates, g);
   const cv = (l, b) => BC.days(b).reduce((s, d) => s + (cnt[l + "|" + d] || 0), 0);
   const a1 = [[X(`彰化轉運中心 發轉滑道分析（${S.from}～${S.to}・${GRAN_ZH[g]}檢視）`, { fill: "1F4E79", color: "FFFFFF", sz: 14 })],
-    [X(`發轉件 ${S.rows.length} 筆${(S.exclReply || S.exclXfer) ? `（已排除：非本所責任回覆 ${S.exclReply || 0} 筆、轉櫃線 48/49/64/65 共 ${S.exclXfer || 0} 筆）` : ""}・可對應滑道 ${mapped} 筆（依註區站對應滑道歸戶）`, { sz: 12 })], [],
+    [X(`本所發轉件 ${S.rows.length} 筆${S.exclReply ? `（已排除非本所責任回覆 ${S.exclReply} 筆）` : ""}${xitems.length ? `・轉櫃線另列 ${xitems.length} 筆（中工所 ${xitems.filter(i => fzXferOwner(i._ch) === "中工所").length}、八里轉運所 ${xitems.filter(i => fzXferOwner(i._ch) === "八里轉運所").length}）` : ""}`, { sz: 12 })], [],
     [H("排名"), H("滑道"), H("服務站所"), ...BC.bs.map(b => H(bucketLabel(b, g))), H("累計"), H("占比")]];
   labels.forEach((l, i) => {
     const n = cnt[l] || 0, top = i === 0 && l !== FZ_NOMAP, isNo = l === FZ_NOMAP;
     const o = top ? { fill: "FDE2E2", color: "B42318" } : {};
     a1.push([X(isNo ? "—" : i + 1, o), X(l + (top ? " ▲" : ""), { ...o, left: true }), X(isNo ? "註區站不在滑道圖上" : fzLabelOf(l), { ...o, left: true }), ...BC.bs.map(b => X(cv(l, b), o)), X(n, { ...o, fill: o.fill || "F2F2F2" }), X(isNo ? "—" : pct(n, mapped), o)]);
   });
+  // 轉櫃線另列（中工所／八里轉運所責任，不佔本所排名）
+  xlabels.forEach(l => {
+    const o = { fill: "DCE9FA", color: "10457F" };
+    a1.push([X("—", o), X(l + " 轉櫃", { ...o, left: true }), X(`${fzXferOwner(l)}責任（${fzXferName(l)}）`, { ...o, left: true }), ...BC.bs.map(b => X(BC.days(b).reduce((s, d) => s + (xcnt[l + "|" + d] || 0), 0), o)), X(xcnt[l] || 0, o), X("—", o)]);
+  });
   const ws1 = XLSX.utils.aoa_to_sheet(a1);
   autoFitSheet(ws1, a1, { skipRows: [0, 1], wrapCols: [2], rowHpts: { 0: 30, 1: 22, 2: 8, 3: 26 }, baseHpt: 22 });
   ws1["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: BC.bs.length + 5 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: BC.bs.length + 5 } }];
   XLSX.utils.book_append_sheet(wb, ws1, "滑道排行");
-  const a2 = [["發送日", "十碼貨號", "誤流站(註區站)", "滑道", "應到站", "回覆原文"].map(H)];
-  items.sort((a, b) => a.send_date.localeCompare(b.send_date)).forEach(i => a2.push([X(md(i.send_date)), X(i.tracking_no), X(stName(i.note_station)), X(i._ch), X(i.dest_station || ""), X(i.reply || "", { left: true })]));
+  const a2 = [["發送日", "十碼貨號", "誤流站(註區站)", "滑道", "責任", "應到站", "回覆原文"].map(H)];
+  const allDet = [...items.map(i => ({ i, own: "本所" })), ...xitems.map(i => ({ i, own: fzXferOwner(i._ch) }))].sort((a, b) => a.i.send_date.localeCompare(b.i.send_date));
+  allDet.forEach(({ i, own }) => {
+    const o = own === "本所" ? {} : { fill: "DCE9FA", color: "10457F" };
+    a2.push([X(md(i.send_date), o), X(i.tracking_no, o), X(stName(i.note_station), o), X(i._ch, o), X(own, o), X(i.dest_station || "", o), X(i.reply || "", { ...o, left: true })]);
+  });
   const ws2 = XLSX.utils.aoa_to_sheet(a2);
-  autoFitSheet(ws2, a2, { wrapCols: [5], rowHpts: { 0: 24 }, baseHpt: 20 });
-  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: items.length, c: 5 } }) };
+  autoFitSheet(ws2, a2, { wrapCols: [6], rowHpts: { 0: 24 }, baseHpt: 20 });
+  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: allDet.length, c: 6 } }) };
   XLSX.utils.book_append_sheet(wb, ws2, "發轉件明細");
 }
 function exportFzExcel() {
