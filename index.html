@@ -1389,6 +1389,7 @@ function ensureFillModal() {
         renderPivot();
       }
       loadUnitStats();
+      loadAttr(true); loadCage(true); loadFz(true);   // 填寫後同步更新歸咎/籠車/滑道分析（非本所責任即時剔除）
       d.style.display = "none";
     } catch (err) {
       d.querySelector("#fmMsg").textContent = "儲存失敗：" + err.message;
