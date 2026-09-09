@@ -2895,9 +2895,19 @@ async function handleFile(file) {
     const st = XLSX.utils.sheet_to_json(wb.Sheets["統計表"], { header: 1, raw: true, defval: null });
     const dt = XLSX.utils.sheet_to_json(wb.Sheets["誤裝訂明細"], { header: 1, raw: true, defval: null });
     // ---- 統計表 ----
-    const hdr = st[2] || [];
+    // 欄位位置以標題列自動偵測（2026/09 公司改版：前面多了趨勢圖代號/區名欄，區號/區/發送站整體右移 2 欄）
+    const hdr = st[2] || [], lbl = st[3] || [];
+    const xTrim = (v) => typeof v === "string" ? v.trim() : v;
+    let bCol = 1, cnCol = 2, dnCol = 3;   // 舊版預設：區號/區/發送站
+    const iCn = lbl.findIndex((v) => xTrim(v) === "區");
+    const iDn = lbl.findIndex((v) => xTrim(v) === "發送站");
+    if (iCn >= 0 && iDn > iCn) {
+      cnCol = iCn; dnCol = iDn;
+      const iB = hdr.findIndex((v) => xTrim(v) === "區號");
+      bCol = iB >= 0 ? iB : iCn - 1;
+    }
     const dateCols = [];
-    for (let c = 5; c < hdr.length; c++) {
+    for (let c = dnCol + 1; c < hdr.length; c++) {
       const d = (typeof hdr[c] === "number" && hdr[c] > 20000 && hdr[c] < 80000) ? serialToYmd(hdr[c]) : null;
       if (d) dateCols.push([c, d]);
     }
@@ -2905,7 +2915,7 @@ async function handleFile(file) {
     const stats = [];
     for (let r = 4; r < st.length; r++) {
       const row = st[r] || [];
-      const b = row[1], cn = xTxt(row[2]), dn = xTxt(row[3]);
+      const b = row[bCol], cn = xTxt(row[cnCol]), dn = xTxt(row[dnCol]);
       if (cn == null && dn == null) break;
       let scope, code, region, station;
       if (cn === "全公司") { scope = "company"; code = 0; region = "全公司"; station = ""; }
@@ -2918,6 +2928,13 @@ async function handleFile(file) {
         if (!sent && !err) continue;
         stats.push({ stat_date: d, scope, region_code: code, region_name: region, station_name: station, sent_count: sent, err_count: err });
       }
+    }
+    // 防呆：同一鍵值出現兩次代表統計表格式又改版（會撞資料庫 upsert），先擋下並提示
+    const statKeys = new Set();
+    for (const s of stats) {
+      const k = `${s.stat_date}|${s.scope}|${s.region_name}|${s.station_name}`;
+      if (statKeys.has(k)) throw new Error(`統計表解析出重複資料（${s.stat_date} ${s.region_name} ${s.station_name}），格式可能又改版，請通知管理員檢查。`);
+      statKeys.add(k);
     }
     // ---- 明細 ----
     const detailsBy = {};
