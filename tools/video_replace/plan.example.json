@@ -1,0 +1,336 @@
+{
+ "video": "src.mp4",
+ "out": "render/final.mp4",
+ "tmpdir": "render",
+ "end": 375.5,
+ "preset": "medium",
+ "crf": 18,
+ "caption_size": 40,
+ "caption_y": 800,
+ "delogo": [
+  {
+   "x": 486,
+   "y": 1108,
+   "w": 224,
+   "h": 68
+  },
+  {
+   "x": 486,
+   "y": 1182,
+   "w": 224,
+   "h": 38
+  },
+  {
+   "x": 486,
+   "y": 1226,
+   "w": 224,
+   "h": 36
+  },
+  {
+   "x": 543,
+   "y": 291,
+   "w": 118,
+   "h": 38
+  }
+ ],
+ "pip": [
+  {
+   "image": "assets/durant.jpg",
+   "cx": 0.4,
+   "cy": 0.35,
+   "size": 0.62,
+   "center": [
+    104,
+    318
+   ],
+   "r": 97,
+   "ranges": [
+    [
+     19.63,
+     65.9
+    ],
+    [
+     99.0,
+     145.53
+    ]
+   ]
+  },
+  {
+   "image": "assets/sengun_portrait.jpg",
+   "cx": 0.63,
+   "cy": 0.2,
+   "size": 0.42,
+   "center": [
+    104,
+    318
+   ],
+   "r": 97,
+   "ranges": [
+    [
+     67.67,
+     97.37
+    ],
+    [
+     309.23,
+     369.47
+    ]
+   ]
+  },
+  {
+   "image": "assets/vanvleet.jpg",
+   "cx": 0.45,
+   "cy": 0.21,
+   "size": 0.48,
+   "center": [
+    84,
+    836
+   ],
+   "r": 96,
+   "ranges": [
+    [
+     146.73,
+     185.37
+    ]
+   ]
+  },
+  {
+   "image": "assets/thompson.jpg",
+   "cx": 0.57,
+   "cy": 0.14,
+   "size": 0.45,
+   "center": [
+    104,
+    318
+   ],
+   "r": 97,
+   "ranges": [
+    [
+     186.73,
+     234.43
+    ]
+   ]
+  },
+  {
+   "image": "assets/smart.jpg",
+   "cx": 0.7,
+   "cy": 0.21,
+   "size": 0.36,
+   "center": [
+    104,
+    318
+   ],
+   "r": 97,
+   "ranges": [
+    [
+     235.93,
+     307.5
+    ]
+   ]
+  }
+ ],
+ "full": [
+  {
+   "start": 0.0,
+   "end": 2.4,
+   "image": "assets/durant.jpg",
+   "focus": [
+    0.45,
+    0.4
+   ],
+   "captions": [
+    [
+     0.0,
+     2.4,
+     "火箭真假杜兰特33投21中"
+    ]
+   ]
+  },
+  {
+   "start": 2.4,
+   "end": 4.8,
+   "image": "assets/sengun.jpg",
+   "focus": [
+    0.5,
+    0.55
+   ],
+   "captions": [
+    [
+     2.4,
+     4.8,
+     "真实命中率75%以上"
+    ]
+   ]
+  },
+  {
+   "start": 4.8,
+   "end": 6.3,
+   "image": "assets/durant.jpg",
+   "focus": [
+    0.4,
+    0.3
+   ],
+   "captions": [
+    [
+     4.8,
+     6.3,
+     "高效合砍60分"
+    ]
+   ]
+  },
+  {
+   "start": 6.3,
+   "end": 9.97,
+   "image": "assets/vanvleet.jpg",
+   "focus": [
+    0.45,
+    0.25
+   ],
+   "captions": [
+    [
+     6.3,
+     9.0,
+     "范弗利特回归11助攻"
+    ],
+    [
+     9.0,
+     9.97,
+     "盘活全队"
+    ]
+   ]
+  },
+  {
+   "start": 9.97,
+   "end": 12.0,
+   "image": "assets/thompson.jpg",
+   "focus": [
+    0.55,
+    0.2
+   ],
+   "captions": [
+    [
+     9.97,
+     10.4,
+     "天龙8图"
+    ],
+    [
+     10.4,
+     12.0,
+     "每天8张图"
+    ]
+   ]
+  },
+  {
+   "start": 12.0,
+   "end": 14.0,
+   "image": "assets/sengun_portrait.jpg",
+   "focus": [
+    0.55,
+    0.25
+   ],
+   "captions": [
+    [
+     12.0,
+     14.0,
+     "高效精准带你了解热门赛事"
+    ]
+   ]
+  },
+  {
+   "start": 14.0,
+   "end": 16.0,
+   "image": "assets/smart.jpg",
+   "focus": [
+    0.65,
+    0.3
+   ],
+   "captions": [
+    [
+     14.0,
+     16.0,
+     "今天我们来盘火箭"
+    ]
+   ]
+  },
+  {
+   "start": 16.0,
+   "end": 17.7,
+   "image": "assets/durant.jpg",
+   "focus": [
+    0.45,
+    0.4
+   ],
+   "captions": [
+    [
+     16.0,
+     17.7,
+     "争冠到底有没有说法"
+    ]
+   ]
+  },
+  {
+   "start": 370.0,
+   "end": 372.0,
+   "image": "assets/sengun_portrait.jpg",
+   "focus": [
+    0.55,
+    0.25
+   ],
+   "captions": [
+    [
+     370.0,
+     370.9,
+     "天龙八图"
+    ],
+    [
+     370.9,
+     372.0,
+     "每天8张图"
+    ]
+   ]
+  },
+  {
+   "start": 372.0,
+   "end": 374.0,
+   "image": "assets/thompson.jpg",
+   "focus": [
+    0.55,
+    0.2
+   ],
+   "captions": [
+    [
+     372.0,
+     373.4,
+     "下一期想听谁"
+    ],
+    [
+     373.4,
+     374.0,
+     "欢迎大家投稿"
+    ]
+   ]
+  }
+ ],
+ "texts": [
+  {
+   "start": 374.2,
+   "end": 375.5,
+   "size": 26,
+   "y": "h-260",
+   "text": "球員照片來源：Wikimedia Commons（CC BY 2.0 / 4.0）"
+  },
+  {
+   "start": 374.2,
+   "end": 375.5,
+   "size": 22,
+   "y": "h-215",
+   "text": "Houston Roundball Review Media Group／Pikraken"
+  },
+  {
+   "start": 374.2,
+   "end": 375.5,
+   "size": 22,
+   "y": "h-180",
+   "text": "Zafer／Erik Drost"
+  }
+ ]
+}
